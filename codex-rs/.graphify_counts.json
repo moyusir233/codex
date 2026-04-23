@@ -1,0 +1,1 @@
+{"total_files": 2660, "total_words": 2067310, "counts": {"code": 2004, "document": 645, "paper": 0, "image": 11, "video": 0}, "skipped_sensitive_count": 18, "warning": "Large corpus: 2660 files \u00b7 ~2,067,310 words. Semantic extraction will be expensive (many Claude tokens). Consider running on a subfolder, or use --no-semantic to run AST-only."}

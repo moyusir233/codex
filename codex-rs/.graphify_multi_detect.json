@@ -1,0 +1,114 @@
+[
+  {
+    "path": "core/src/tools",
+    "total_files": 80,
+    "total_words": 75603,
+    "counts": {
+      "code": 80,
+      "document": 0,
+      "paper": 0,
+      "image": 0,
+      "video": 0
+    },
+    "warning": null,
+    "skipped_sensitive": 0
+  },
+  {
+    "path": "core/src/plugins",
+    "total_files": 19,
+    "total_words": 19733,
+    "counts": {
+      "code": 19,
+      "document": 0,
+      "paper": 0,
+      "image": 0,
+      "video": 0
+    },
+    "warning": "Corpus is ~19,733 words - fits in a single context window. You may not need a graph.",
+    "skipped_sensitive": 0
+  },
+  {
+    "path": "core/src/memories",
+    "total_files": 16,
+    "total_words": 10142,
+    "counts": {
+      "code": 15,
+      "document": 1,
+      "paper": 0,
+      "image": 0,
+      "video": 0
+    },
+    "warning": "Corpus is ~10,142 words - fits in a single context window. You may not need a graph.",
+    "skipped_sensitive": 0
+  },
+  {
+    "path": "core/src/config",
+    "total_files": 15,
+    "total_words": 35516,
+    "counts": {
+      "code": 14,
+      "document": 1,
+      "paper": 0,
+      "image": 0,
+      "video": 0
+    },
+    "warning": "Corpus is ~35,516 words - fits in a single context window. You may not need a graph.",
+    "skipped_sensitive": 0
+  },
+  {
+    "path": "core/src/unified_exec",
+    "total_files": 12,
+    "total_words": 7902,
+    "counts": {
+      "code": 12,
+      "document": 0,
+      "paper": 0,
+      "image": 0,
+      "video": 0
+    },
+    "warning": "Corpus is ~7,902 words - fits in a single context window. You may not need a graph.",
+    "skipped_sensitive": 0
+  },
+  {
+    "path": "core/src/session",
+    "total_files": 12,
+    "total_words": 41381,
+    "counts": {
+      "code": 12,
+      "document": 0,
+      "paper": 0,
+      "image": 0,
+      "video": 0
+    },
+    "warning": "Corpus is ~41,381 words - fits in a single context window. You may not need a graph.",
+    "skipped_sensitive": 0
+  },
+  {
+    "path": "core/src/agent",
+    "total_files": 11,
+    "total_words": 13235,
+    "counts": {
+      "code": 10,
+      "document": 1,
+      "paper": 0,
+      "image": 0,
+      "video": 0
+    },
+    "warning": "Corpus is ~13,235 words - fits in a single context window. You may not need a graph.",
+    "skipped_sensitive": 0
+  },
+  {
+    "path": "core/src/context",
+    "total_files": 11,
+    "total_words": 1921,
+    "counts": {
+      "code": 11,
+      "document": 0,
+      "paper": 0,
+      "image": 0,
+      "video": 0
+    },
+    "warning": "Corpus is ~1,921 words - fits in a single context window. You may not need a graph.",
+    "skipped_sensitive": 0
+  }
+]
