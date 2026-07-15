@@ -1,105 +1,82 @@
 # Architecture overview
 
-Codex is a layered Rust application: command-line entrypoints and UI clients drive a local agent engine through typed protocols, while persistence, plugins, tools, and integration surfaces live in separate workspace crates. This page gives the shortest useful path through those layers.
-
-## Runtime layers
+Codex is a layered Rust system. CLI, TUI, and external app clients drive a thread/session runtime through typed protocols; the runtime builds model context, streams Responses API output, dispatches tools through approval and sandbox policy, emits events, and persists durable history.
 
 ```text
-User command or IDE/app client
-  -> `codex-rs/cli` / `codex-rs/tui` / `codex-rs/app-server`
-  -> `codex-rs/protocol` and `codex-rs/app-server-protocol` message types
-  -> `codex-rs/core` thread/session runtime
-  -> model client, tools, MCP, exec/sandbox, plugins, skills, memories
-  -> rollout/thread-store/state persistence
+User / IDE / app
+  -> CLI + TUI, non-interactive exec, or app-server transport
+  -> internal `codex-protocol` Op/Event or external app-server JSON-RPC
+  -> ThreadManager + CodexThread + Session/Turn runtime
+  -> model provider/client + context + tool plan
+  -> approval hooks / Guardian / user review -> sandboxed execution
+  -> events to clients + rollout/thread-store/state persistence
 ```
 
-Important source references:
+## Product entrypoints
 
-- `codex-rs/cli/src/main.rs`: top-level `codex` command and subcommands.
-- `codex-rs/tui/src/main.rs`: standalone TUI binary wrapper around `codex_tui::run_main`.
-- `codex-rs/app-server/src/main.rs`: app-server binary options (`--listen`, `--session-source`, websocket auth, strict config, remote control).
-- `codex-rs/app-server/src/lib.rs`: app-server runtime, transports, message processing, config, outgoing routing, and startup logging.
-- `codex-rs/core/src/lib.rs`: public exports and internal module map for the core agent engine.
-- `codex-rs/core/src/session/session.rs`: session state/configuration and permission/sandbox helpers.
-- `codex-rs/core/src/thread_manager.rs`: thread lifecycle, creation, resume, fork, storage, and multi-agent parent/child metadata.
-- `codex-rs/protocol/src/protocol.rs`: core submission/event protocol and shared context tags.
-- `codex-rs/docs/protocol_v1.md`: architecture vocabulary for model, Codex, session, task, turn, SQ/EQ submissions/events.
+- `codex-rs/cli/src/main.rs` defines the `codex` multitool. With no subcommand it forwards to the interactive TUI; commands include `exec`, `review`, auth, MCP/plugin management, MCP server, app server, remote control, doctor, sandbox/debug tools, session lifecycle, cloud tasks, and features.
+- `codex-rs/tui/src/main.rs` is a thin binary wrapper; `tui/src/lib.rs`, `app/`, `chatwidget/`, `bottom_pane/`, and `app_server_session.rs` own interactive behavior.
+- `codex-rs/exec` provides non-interactive operation.
+- `codex-rs/app-server` exposes Codex to IDE/app clients. `app-server/src/main.rs` accepts `stdio://`, Unix socket, WebSocket, or `off` transports, a session source, strict config, auth, and remote-control options.
 
-## CLI and TUI entrypoints
+The app server is not itself “the MCP server.” The experimental `codex mcp-server` command is a separate stdio MCP adapter in `codex-rs/mcp-server/`; app-server is the broader JSON-RPC application boundary.
 
-`codex-rs/cli/src/main.rs` defines `MultitoolCli`. With no subcommand, options are forwarded to the interactive CLI/TUI. Subcommands include non-interactive `exec`, `review`, login/logout, MCP server management, plugin management, app-server/remote-control tools, desktop app launchers on supported platforms, completion generation, update, doctor, sandbox/debug tools, session resume/archive/delete/unarchive/fork, cloud tasks, and feature inspection.
+## Runtime ownership
 
-The standalone TUI binary in `codex-rs/tui/src/main.rs` is thinner: it parses shared config overrides, calls `run_main`, and formats exit messages such as token usage, resume hints, and fatal session IDs. Most TUI behavior lives in `codex-rs/tui/src/lib.rs`, `app.rs`, `app_server_session.rs`, `chatwidget/`, `bottom_pane/`, and many focused submodules.
+`codex-rs/core` remains the main orchestration crate, but repository guidance explicitly discourages growing it when a narrower crate can own new behavior.
 
-Design note from `AGENTS.md`: large TUI orchestration files are high-touch. Prefer adding focused modules and moving nearby tests with extracted logic instead of growing `app.rs`, `chatwidget.rs`, or `bottom_pane/chat_composer.rs`.
+- `core/src/thread_manager.rs`: create, resume, fork, store, and shut down threads; parent/subagent relationships.
+- `core/src/codex_thread.rs`: public thread handle and settings snapshots.
+- `core/src/session/`: session state, active turns, per-turn configuration, event flow, and service coordination.
+- `core/src/context/` and `context_manager/`: bounded model-visible history and contextual fragments.
+- `core/src/client.rs`: model client/session plumbing.
+- `core/src/tools/spec_plan.rs`: model-visible tool inventory for a turn.
+- `core/src/tools/handlers/`: tool implementations and focused tests.
 
-## App server layer
+`codex-rs/docs/protocol_v1.md` is useful vocabulary but warns that code may not completely match the document. A **thread** is the durable work/conversation, a **session** is active runtime configuration/state, a **task** responds to user input, and a **turn** is one model/tool iteration.
 
-The app server is the integration boundary for IDE/app clients and MCP-style control surfaces.
+## Protocol boundaries
 
-- `codex-rs/app-server/src/main.rs` starts the server with a transport URL. Supported listen modes include `stdio://`, `unix://`, `ws://IP:PORT`, and `off`.
-- `codex-rs/app-server/src/lib.rs` wires transports, remote-control startup, config layers, auth policy, connection cleanup, message processing, outgoing routing, and logging/OTel setup.
-- `codex-rs/app-server-protocol/src/protocol/mod.rs` organizes protocol modules: common types, v1/v2 RPCs, event mapping, item builders, thread history, and thread history projection.
-- `codex-rs/docs/codex_mcp_interface.md` documents the experimental MCP server interface exposed by `codex mcp-server`/`codex-mcp-server`.
+- `codex-rs/protocol`: internal shared Rust submissions (`Op`), events (`EventMsg`), model metadata, user input, permissions, and items. These are primarily in-process types, not a general stable wire API.
+- `codex-rs/app-server-protocol`: external JSON-RPC requests, responses, notifications, history projections, and generated TypeScript/JSON schemas.
 
-New integrations should prefer v2 thread/turn APIs where possible (`thread/start`, `thread/resume`, `thread/fork`, `thread/read`, `thread/list`, `turn/start`, `turn/steer`, `turn/interrupt`). Legacy v1 compatibility methods remain for older clients.
+New app clients should prefer v2 thread/turn methods (`thread/start`, `thread/resume`, `thread/fork`, `thread/read`, `thread/list`, `turn/start`, `turn/steer`, `turn/interrupt`). Protocol changes should be traced into app-server event mapping, generated schemas, clients, persistence replay, and TUI handling.
 
-## Core engine: threads, sessions, and turns
+## A turn through the system
 
-The core engine maintains a thread/session runtime that maps user turns to model calls, tool execution, approvals, event emission, and persistence.
+1. A client starts/resumes a thread and submits a user turn with per-turn context.
+2. Core assembles bounded history, instructions, environment state, skills/plugins, and available tool specs.
+3. The selected `ModelProvider` creates model services; the Responses API streams model items.
+4. Text and item deltas become events. Tool calls route to native, MCP, dynamic, or extension handlers.
+5. A permission-request hook may resolve approval first; otherwise the configured reviewer is Guardian or the user (`core/src/tools/approvals.rs`). Exec policy, approval policy, and sandbox policy remain distinct.
+6. Commands and patches execute under the resolved platform sandbox; outputs are bounded before returning to model context.
+7. Events flow to the client and durable items/metadata flow to rollout, thread-store, and state projections.
+8. Additional tool output can trigger another turn; completion, interruption, or fatal error ends the task.
 
-`codex-rs/docs/protocol_v1.md` defines the key vocabulary:
+## Persistence
 
-- **Codex**: local engine, operated via submission queue/event queue style messages.
-- **Session**: current configuration and state. It starts through `Op::ConfigureSession`; reconfiguration aborts running work.
-- **Task**: work in response to user input; at most one task runs per session.
-- **Turn**: one loop of model request, streamed response collection, tool/patch execution, approval pauses, and output fed into the next turn.
+- `codex-rs/rollout`: durable rollout/session JSONL, compression, listing, archives, ordinals, and persistence policy.
+- `codex-rs/thread-store`: live local/in-memory thread records and metadata synchronization.
+- `codex-rs/state`: SQLite-backed extraction and projections used by listing, app-server, diagnostics, and memories.
+- `codex-rs/agent-graph-store`: agent/thread relationships.
 
-In code:
+Resume, fork, list, archive, and history behavior often crosses all three primary persistence crates. Recent rollout ordinals (`5c19155cb`) and advanced-reasoning metadata (`769a5de25`) show why stored items, derived projections, and UI restoration must be tested together.
 
-- `Session` in `codex-rs/core/src/session/session.rs` holds the `thread_id`, event sender, `SessionState`, feature set, MCP refresh state, realtime conversation manager, active turn, input queue, guardian review session, and service handles.
-- `SessionConfiguration` carries provider/model behavior, collaboration mode, reasoning summary, developer/base instructions, personality, approval policy, permission profile state, sandbox config, environment selections, workspace roots, Codex home, thread metadata, dynamic tools, source labels, and history mode.
-- `ThreadManager` in `codex-rs/core/src/thread_manager.rs` creates/resumes/forks threads, coordinates `ThreadStore` implementations, maps fork snapshots, tracks parent/subagent relationships, and emits initial `SessionConfigured` events.
+## Extension composition
 
-## Protocol and event mapping
+There are three separate concepts:
 
-`codex-rs/protocol/src/protocol.rs` is the shared type source for the core agent protocol. It defines context tags such as `<user_instructions>`, `<environment_context>`, `<skills_instructions>`, `<plugins_instructions>`, `<collaboration_mode>`, and `<multi_agent_mode>`, plus core structs such as `TurnEnvironmentSelection`.
+1. `codex-rs/ext/extension-api` is an in-process typed registry. Contributors participate in thread/turn lifecycle, configuration, context, token usage, skills, MCP servers, turn inputs/items, native tools, tool lifecycle, and approval review.
+2. `codex-rs/plugin` defines installable package manifests; `core-plugins` handles marketplaces, installation, policy, startup sync, and effective state. Packages may declare skills, MCP servers, apps, hooks, and UI metadata.
+3. Built-in extensions under `codex-rs/ext/*` implement concrete capabilities such as skills, MCP, connectors, memories, Guardian, image generation, and web search.
 
-Two protocol surfaces are easy to confuse:
+Do not use “plugin,” “extension,” and “MCP server” interchangeably. See [Integration points](../domain/integrations.md).
 
-- `codex-rs/protocol`: internal/core Op/Event, item, permission, model, and user-input types used across core, TUI, exec, and tests.
-- `codex-rs/app-server-protocol`: JSON-RPC request/response/notification types and schema fixtures for external app-server clients.
+## Architectural pressure points
 
-Changes to either surface are breaking-risk areas. `AGENTS.md` explicitly calls out external integration surfaces: app-server APIs, raw response item events (`rawResponseItem/*`), CLI parameters, configuration loading, and resuming sessions from existing rollouts.
-
-## Tool planning and execution
-
-Tool definitions and dispatch are centered under `codex-rs/core/src/tools/`.
-
-- `tools/mod.rs` defines tool-mode selection and output formatting/truncation helpers.
-- `tools/spec_plan.rs` plans available tools for a turn, including shell/exec, apply-patch, current-time, MCP resources/tools, dynamic tools, plugin install requests, request-user-input, permissions, web search, image generation, code mode, and multi-agent variants.
-- `tools/handlers/` owns implementation-specific handlers and tests. Many specs have adjacent `*_spec.rs` and `*_tests.rs` files.
-
-Recent history shows multi-agent tooling is actively changing. `92938d880` restricted spawned-agent models to the active backend, touching multi-agent specs/tests, protocol model metadata, and TUI session code. When changing model selection or spawned-agent behavior, inspect both core tool specs and UI/app-server request plumbing.
-
-## Persistence model
-
-Persistence is split deliberately:
-
-- `codex-rs/rollout`: JSONL-style rollout persistence, compression, listing/search, session index, archived sessions, state DB bridge, and policies for which rollout items are durable.
-- `codex-rs/thread-store`: live thread store abstractions and local/in-memory implementations. `types.rs` captures thread creation/resume metadata including session/thread IDs, parent/fork IDs, source, originator, base instructions, dynamic tools, selected roots, multi-agent version, history mode, and persistence metadata.
-- `codex-rs/state`: state extraction and SQLite-backed projections used by app-server/thread metadata and memory flows.
-
-Recent `5c19155cb` added ordinals to paginated rollout records, and `769a5de25` updated thread metadata sync for explicit advanced reasoning selection. When changing resume/fork/list/history behavior, inspect rollout, thread-store, app-server protocol projection, TUI resume/history tests, and core suite tests together.
-
-## Extension and integration subsystems
-
-The core runtime composes several extension-like systems:
-
-- MCP: `codex-rs/codex-mcp`, `codex-rs/rmcp-client`, `codex-rs/mcp-server`, and app-server MCP docs.
-- Plugins/apps: `codex-rs/core-plugins`, `codex-rs/plugin`, `codex-rs/connectors`, and app-server plugin processors.
-- Skills: `codex-rs/ext/skills`, `codex-rs/core-skills`, `codex-rs/skills`.
-- Hooks: `codex-rs/hooks` and core hook runtime.
-- Memories: `codex-rs/memories/read`, `codex-rs/memories/write`, and startup orchestration from core.
-
-See [../domain/integrations.md](../domain/integrations.md) for deeper navigation and change risks.
+- `codex-core` and central TUI files are protected from unrelated growth (`AGENTS.md`).
+- Tool specs and contextual fragments are model-facing APIs; wording, ordering, and size affect behavior and caching.
+- App-server/protocol and rollout formats are compatibility surfaces.
+- Approval and sandbox changes are safety-sensitive and platform-specific.
+- Model/reasoning settings cross provider catalogs, UI, app-server, and persisted metadata.
+- Cargo and Bazel metadata must remain synchronized.

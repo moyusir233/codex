@@ -1,133 +1,61 @@
 # Integration points
 
-Codex exposes several integration surfaces: app-server JSON-RPC/MCP, core MCP clients/tools, plugins/apps/connectors, skills, hooks, model/provider configuration, and local persistence. These are the areas most likely to affect external clients or user data.
+## App-server: external application API
 
-## App-server and MCP server
+`codex-rs/app-server` is the IDE/app JSON-RPC boundary. It supports stdio, Unix sockets, WebSockets, or no listening transport, plus session-source restrictions, strict config, WebSocket auth, daemon/proxy, and remote-control flows (`app-server/src/main.rs`, `cli/src/main.rs`). Protocol types and generated schemas live in `app-server-protocol`.
 
-`codex-rs/docs/codex_mcp_interface.md` documents the experimental MCP server interface.
+Prefer v2 thread/turn RPCs for new clients. When changing this API, update request processors, protocol types, schema fixtures (`just write-app-server-schema`), and `app-server/tests/suite`, especially `suite/v2/`.
 
-At a glance:
+## MCP in both directions
 
-- Server binary: `codex mcp-server` or `codex-mcp-server`.
-- Transport: MCP over stdio, JSON-RPC 2.0, line-delimited.
-- Primary v2 RPCs: `thread/start`, `thread/resume`, `thread/fork`, `thread/read`, `thread/list`, `turn/start`, `turn/steer`, `turn/interrupt`, account/config/model/app/collaboration-mode reads and writes.
-- Remaining v1 compatibility RPCs: `getConversationSummary`, `getAuthStatus`, `gitDiffToRemote`, and fuzzy file search flows.
-- Approval requests from server to client include `applyPatchApproval` and `execCommandApproval`.
+Codex plays two different roles:
 
-Source entrypoints:
+- **MCP server:** `codex mcp-server` / `codex-mcp-server` exposes an experimental stdio MCP adapter documented in `codex-rs/docs/codex_mcp_interface.md`.
+- **MCP client:** `codex-mcp` and `rmcp-client` manage configured stdio/HTTP servers, catalogs, resources/tools, Apps integration, OAuth, elicitation, provenance, conflicts, and sandbox metadata. Core exposes and invokes those tools through `core/src/mcp*` and tool handlers.
 
-- `codex-rs/app-server/src/main.rs`: command-line app-server startup.
-- `codex-rs/app-server/src/lib.rs`: transport/runtime wiring.
-- `codex-rs/app-server/src/request_processors/`: request-specific business logic.
-- `codex-rs/app-server-protocol/src/protocol/{common,v1,v2}.rs`: request/response/notification shapes.
-- `codex-rs/mcp-server`: MCP server binary crate.
-- `codex-rs/codex-mcp` and `codex-rs/rmcp-client`: MCP client/connection/tool plumbing.
+Prefer the existing MCP connection manager rather than plumbing mutable connection behavior through core. MCP auth and tool exposure are concurrency/compatibility-sensitive; use core suite and connection-manager tests.
 
-Change guidance:
+## Typed runtime extensions
 
-- Prefer v2 thread/turn APIs for new clients.
-- Update generated schema fixtures with `just write-app-server-schema` when app-server protocol schemas change.
-- Add or update app-server suite tests under `codex-rs/app-server/tests/suite`, especially `suite/v2/`, for API changes.
-- Treat v1 compatibility methods as legacy but still supported unless source removes them.
+`ext/extension-api` is an in-process contributor framework, not an installable plugin format. `ExtensionRegistryBuilder` registers contributors for thread/turn lifecycle, config, token usage, skill invocation, context, runtime MCP servers, turn input/items, native tools, tool lifecycle, and approval review (`ext/extension-api/src/registry.rs`).
 
-## Plugins and app connectors
+Concrete built-ins under `ext/*` install against this API. App-server composition begins in `app-server/src/extensions.rs`. New contribution types should keep the API small, preserve ordering/claim semantics, and include extension plus host integration tests.
 
-Plugins provide capabilities such as MCP servers, hooks, skills, and app declarations. App connectors represent app/tool metadata and runtime snapshots used by connector-backed MCP tools.
+## Installable plugins
 
-Source entrypoints:
+`plugin/src/manifest.rs` defines packages that can declare skills, MCP servers, apps, hooks, and model/UI-facing metadata. `core-plugins` owns marketplaces, source policy, install/upgrade/uninstall, remote and startup synchronization, and effective plugin state.
 
-- `codex-rs/core-plugins/src/lib.rs`: exported plugin manager, marketplace, loader, provider, and remote types.
-- `codex-rs/core-plugins/src/manager.rs`: install/list/read/uninstall, marketplace policy, remote plugin sync, hook/skill/app loading, and callbacks for effective plugin changes.
-- `codex-rs/core-plugins/src/manifest.rs`: plugin manifest surface.
-- `codex-rs/connectors/src/lib.rs`: app directory cache, app metadata, tool policy, connector runtime exports.
-- `codex-rs/connectors/src/connector_runtime/`: process-local runtime snapshots keyed by account/workspace identity with best-effort disk cold-start persistence.
-- `codex-rs/app-server/src/effective_plugin_change.rs`: app-server view of effective plugin changes.
+Do not confuse plugin package resources with the typed extension registry. Plugin changes may affect app-server plugin processors, hook trust, skill/app visibility, and MCP routing. Materialized workspace-plugin hooks become trusted only after successful serialized config state updates; failures should remain fail-closed (`076a110eb`).
 
-Recent `2f7d89b14` extracted connector runtime snapshot management from `codex-mcp` into `codex-rs/connectors/src/connector_runtime/`. The module docs say runtime snapshots are process-local live state scoped by account and workspace; disk is best-effort cold-start persistence, and full connector metadata is owned by the connector metadata store.
+## Connectors
 
-Recent `076a110eb` changed trust handling for hooks from materialized workspace plugins. If you change plugin materialization, hook trust, or app MCP routing, inspect both `core-plugins` and app-server tests.
+`connectors` has two different caches:
 
-## Hooks
+- App-directory metadata with in-memory/disk caching (`connectors/src/lib.rs`).
+- Account/workspace-scoped live MCP tool snapshots (`connectors/src/connector_runtime/`). Disk snapshots are best-effort cold-start state, read once per context; full metadata belongs to the connector metadata store.
 
-Hooks allow configured commands to run at lifecycle events.
+`2f7d89b14` moved live snapshot ownership out of `codex-mcp` so connector identity, atomic publication, persistence, and stale-generation handling are reusable and transport-independent.
 
-`codex-rs/hooks/src/lib.rs` exports:
+## Skills
 
-- Hook event names: `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`, `SessionStart`, `UserPromptSubmit`, `SubagentStart`, `SubagentStop`, `Stop`.
-- Matcher-meaningful events: all except `UserPromptSubmit` and `Stop` in the current `HOOK_EVENT_NAMES_WITH_MATCHERS` list.
-- Event request/outcome types for compact, permission request, post/pre tool use, session start, stop, and user prompt submit.
-- Schema writing helpers used by the root `package.json`/`justfile` schema recipes.
+- `core-skills`: host loading, policy, namespacing, budgets, and skill services.
+- `ext/skills`: typed providers and tools for Host, Executor, and Orchestrator sources.
+- Plugin manifests may package skill paths.
 
-Operational notes:
+Changes to discovery or policy belong in `core-skills`; changes to typed provider/read/selection behavior belong in `ext/skills`. The current weighted lexical path is an observational shadow experiment, not evidence of active automatic selection.
 
-- `docs/config.md` says admins can set `allow_managed_hooks_only = true` in `requirements.toml` to ignore user/project/session hook configs while still allowing managed hooks from requirements and managed config layers.
-- Do not put that setting in `config.toml`; the doc says it is only supported in `requirements.toml`.
-- If hook schema changes, use the `write-hooks-schema` script/recipe.
+## Hooks and approvals
 
-## Skills integration
+`hooks` defines pre/post tool use, permission request, pre/post compact, session start, user prompt submit, subagent start/stop, and stop events. Matchers apply to all current events except user-prompt-submit and stop (`hooks/src/lib.rs`). Generated schemas live under `hooks/schema/generated/` and are refreshed with `just write-hooks-schema`.
 
-Skills are exposed through the extension system and can be provided by host, executor, or orchestrator sources.
+Permission-request hooks run before Guardian or user review and may resolve the request. Managed policy can restrict accepted hook layers; `docs/config.md` documents `allow_managed_hooks_only` as a `requirements.toml` setting, not a normal `config.toml` field.
 
-Source entrypoints:
+## Models, auth, and catalogs
 
-- `codex-rs/ext/skills/src/lib.rs`: public installation/provider exports.
-- `codex-rs/ext/skills/src/extension.rs`: extension install and metrics wiring.
-- `codex-rs/ext/skills/src/tools/read.rs`: skill read/tool behavior.
-- `codex-rs/ext/skills/src/dynamic_skill_selector/`: cheap lexical selector.
-- `codex-rs/ext/skills/src/shadow_selection_experiment.rs`: temporary shadow metrics experiment.
+Provider configuration, runtime ownership, and catalog management are split across `model-provider-info`, `model-provider`, and `models-manager`. Auth and secure storage involve `login`, `keyring-store`, and `secrets`; never document live credentials.
 
-Recent skill-selection work is intentionally observational: `shadow_selection_experiment.rs` records metrics such as run counts, duration, catalog entries, selected entries, query terms, reduction basis points, and invocation rank/hit tags. It filters to enabled, prompt-visible Host/Orchestrator skills to align with observable invocations.
+Model changes should account for provider capabilities, catalog visibility, app-server model responses, TUI choices, persisted reasoning metadata, and unsupported input modalities. `docs/contributing.md` specifically requires explicit modalities for models without image support.
 
-When changing skill selection, update tests under `codex-rs/ext/skills/tests/` and selector unit tests.
+## Persistence as an integration
 
-## MCP resources/tools inside core
-
-Core MCP behavior spans:
-
-- `codex-rs/core/src/mcp.rs`
-- `codex-rs/core/src/mcp_tool_call.rs` and `mcp_tool_call/`
-- `codex-rs/core/src/mcp_tool_approval_templates.rs`
-- `codex-rs/core/src/mcp_tool_exposure.rs`
-- `codex-rs/core/src/tools/handlers/mcp.rs`
-- `codex-rs/core/src/tools/handlers/mcp_resource.rs`
-- `codex-rs/codex-mcp` and `codex-rs/rmcp-client`
-
-`AGENTS.md` warns that MCP changes should prefer existing connection manager abstractions and minimize plumbing through multiple call levels. Integration tests exist in `codex-rs/core/tests/suite/` for MCP auth refresh/elicitation, tool exposure, turn metadata, resource clients, and hooks-MCP interactions.
-
-## Model providers and model catalog
-
-Model/provider data appears across:
-
-- `codex-rs/model-provider`, `model-provider-info`, `models-manager`
-- `codex-rs/protocol/src/openai_models.rs`
-- `codex-rs/tui/src/model_catalog.rs`, `model_migration.rs`, model/reasoning popup code
-- `codex-rs/app-server` model list processors and protocol responses
-
-`docs/contributing.md` has a specific model metadata rule: set `input_modalities` explicitly for models that do not support images, because omitted modalities currently imply text + image compatibility. Add tests for unsupported-image warnings and paths when model catalogs change.
-
-Recent `769a5de25` made advanced reasoning selection explicit in the TUI, touching app-server thread resume, state extraction, thread-store metadata sync, TUI config persistence, session lifecycle, popups, and snapshots. Reasoning/model changes often cross UI, persistence, and app-server boundaries.
-
-## Config and auth
-
-Primary files:
-
-- `docs/config.md`: points users to external config docs and documents lifecycle hook managed mode.
-- `codex-rs/core/src/config/`: core config structures and loading.
-- `codex-rs/core/config.schema.json`: generated schema.
-- `codex-rs/login`, `codex-rs/keyring-store`, `codex-rs/secrets`: auth and secret storage.
-- `codex-rs/app-server/src/config_manager*`: app-server config manager/service.
-
-Never document or read live secret values. If adding config fields, regenerate schema and update tests.
-
-## Persistence and external compatibility
-
-Persistent thread history is an integration surface because external clients may resume/list/fork old sessions.
-
-Files to inspect:
-
-- `codex-rs/rollout/src/lib.rs` and submodules.
-- `codex-rs/thread-store/src/types.rs` and local/in-memory stores.
-- `codex-rs/app-server-protocol/src/protocol/thread_history*.rs`.
-- `codex-rs/tui/src/resume_picker.rs` and session archive/resume/fork commands.
-
-Avoid changing serialized history or metadata without replay/resume tests. Recent response-item ID work (`c9d52de5c`) and rollout ordinal work (`5c19155cb`) show this area has explicit compatibility requirements.
+External clients depend on old thread history being listable, resumable, and forkable. Changes to response-item IDs, rollout ordinals, metadata, or history projection must cover `rollout`, `thread-store`, `state`, `app-server-protocol/src/protocol/thread_history*`, and client/UI restoration paths.

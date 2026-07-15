@@ -1,123 +1,90 @@
 # Core domain concepts
 
-This page defines the main product and technical concepts that recur across Codex source files. Use it before modifying behavior so you can search for the right names and understand compatibility risks.
-
 ## Thread, session, task, and turn
 
-The clearest vocabulary source is `codex-rs/docs/protocol_v1.md`, backed by types in `codex-rs/protocol/src/protocol.rs` and runtime code in `codex-rs/core/src/session/`.
+`codex-rs/docs/protocol_v1.md` supplies the shared vocabulary, with the caveat that its spec may lag source:
 
-- **Codex**: the local engine. It communicates with clients through submissions and events.
-- **Thread**: the durable conversation/work unit. Current code favors “thread”; older symbols still expose deprecated “conversation” aliases in places such as `codex-rs/core/src/lib.rs`.
-- **Session**: current configuration and runtime state for an initialized model agent. `SessionConfiguration` includes model provider, collaboration mode, developer/base instructions, personality, approval policy, permission profile state, environment selections, workspace roots, dynamic tools, session source, history mode, and thread relationships.
-- **Task**: work in response to user input. A session has at most one running task at a time.
-- **Turn**: one model/tool iteration loop: send request to model, collect streamed response, execute tool calls or patches, pause for approvals if needed, emit events, then feed outputs into a later turn if necessary.
+- **Thread**: durable conversation/work unit; current code prefers “thread,” while `core/src/lib.rs` retains deprecated conversation aliases.
+- **Session**: active configuration and runtime state for a thread.
+- **Task**: work started by user input; at most one runs per session.
+- **Turn**: one model request/stream/tool cycle. Tool output can feed another turn until completion, interruption, or failure.
 
-The core runtime enforces these concepts mainly through `codex-rs/core/src/session/session.rs` and `codex-rs/core/src/thread_manager.rs`.
+`core/src/thread_manager.rs`, `codex_thread.rs`, and `session/` are the implementation anchors.
 
-## User input and protocol events
+## Context and user input
 
-`codex-rs/protocol/src/protocol.rs` defines shared structures and model-visible context tags. `Op::UserTurn` content can include text, images, skills, and mentions, as described in `codex-rs/docs/protocol_v1.md`. `EventMsg` variants report assistant text, streaming deltas, plan deltas, approval requests, turn start/completion, warnings, errors, and raw item events.
+`Op::UserTurn` carries content and per-turn context. User input can contain text, images, explicit skills, and app/connector mentions (`protocol/src/user_input.rs`, `docs/protocol_v1.md`). Core incrementally assembles model-visible history plus bounded contextual fragments.
 
-Compatibility watchouts:
+`AGENTS.md` treats context as a performance and safety contract: do not rewrite history, avoid cache-breaking churn, enforce hard bounds, and define injected fragments as types under `core/context`. Tool descriptions, skills, plugin instructions, environment context, and collaboration/multi-agent state all consume context budget.
 
-- Core protocol events are not identical to app-server JSON-RPC types.
-- `EventMsg::TurnStarted`/`TurnComplete` have v1 wire compatibility tags (`task_started`/`task_complete`) per protocol docs.
-- `AGENTS.md` flags raw response item events and session resume behavior as breaking-change surfaces.
+## Models and providers
 
-## Permissions, approvals, sandboxing, and guardian review
+Three layers are distinct:
 
-Permission and sandbox data flows through protocol/config types, `SessionConfiguration`, tool handlers, and execution code.
+- `model-provider-info`: serializable provider registry/configuration, including built-ins and user-defined providers.
+- `model-provider`: runtime provider abstraction for auth, capabilities, API adaptation, account state, attestation, model managers, and preferred models for reviews/memory.
+- `models-manager`: bundled, static, and remotely refreshed model catalogs plus cache/filtering behavior.
 
-Key areas:
-
-- `codex-rs/core/src/exec_policy.rs` and tests: execution policy and warnings.
-- `codex-rs/core/src/sandboxing/`, `windows_sandbox.rs`, `landlock.rs`: platform sandbox support.
-- `codex-rs/core/src/tools/handlers/request_permissions.rs`: permission request tool behavior.
-- `codex-rs/core/src/guardian/`: guardian review prompt/session/policy behavior.
-- `codex-rs/protocol/src/protocol.rs`: approval and permission event exports.
-
-Recent `ea1545628` aligned Guardian reviews with session configuration, and `bbdf3030d` adjusted lifecycle behavior after guardian interrupts. Changes here should include integration coverage because approval/safety behavior is user-visible.
+The supported wire API is Responses; legacy chat-style provider settings produce migration errors. Model/reasoning changes frequently cross core client construction, TUI catalogs/settings, app-server model APIs, and persisted thread metadata.
 
 ## Tools
 
-The model-visible tool surface is assembled in `codex-rs/core/src/tools/spec_plan.rs` and executed by handlers in `codex-rs/core/src/tools/handlers/`.
+`core/src/tools/spec_plan.rs` assembles the model-visible tool set; `tools/handlers/` dispatches implementations. Categories include shell/exec, patching, user input/permissions, MCP and dynamic tools, plugin requests, web/image functions, code mode, and multi-agent control.
 
-Major tool categories include:
+Treat tool name, schema, description, ordering, and output truncation as model-facing APIs. A “small” spec change can alter model behavior and requires behavioral tests.
 
-- Shell/exec/unified exec and stdin writing.
-- Apply patch.
-- Current time, sleep, context remaining, and new context window.
-- MCP resources/tools and dynamic extension tools.
-- Request user input and request permissions.
-- Plugin installation/listing requests.
-- Web search and image viewing/generation.
-- Code mode tools.
-- Multi-agent spawn/send/wait/resume/interrupt/follow-up flows.
+## Approval, policy, and sandboxing
 
-`tools/mod.rs` also centralizes truncation/formatting of exec output for model consumption. Treat tool specs as model-visible API: small wording or schema changes can alter model behavior and tests.
+These mechanisms are related but not interchangeable:
+
+- **Approval policy** decides whether an action may proceed automatically, must be reviewed, or is forbidden.
+- **Permission-request hooks** may allow or deny first.
+- **Reviewer routing** sends unresolved requests to Guardian or the user (`core/src/tools/approvals.rs`).
+- **Exec policy** independently classifies commands and can produce policy amendments (`execpolicy/`, `core/src/exec_policy.rs`).
+- **Sandbox policy** constrains filesystem/network/process access; reusable implementations live in `sandboxing/`, `linux-sandbox/`, and Windows sandbox crates, while core orchestrates them.
+
+Session approvals can be cached by approval key; apply-patch may require all affected file keys. Denied-read restrictions cannot be bypassed by ordinary unsandboxed escalation, because that would silently grant forbidden access. Changes in this area require integration and platform-aware tests.
+
+## Persistence and compatibility
+
+- `rollout`: durable JSONL items, compression, session indexes, archives, ordinals.
+- `thread-store`: local/in-memory thread state and metadata synchronization.
+- `state`: SQLite projections/extraction used by listing, diagnostics, app-server, and memory.
+
+Stored history is an external compatibility surface because users and clients resume, fork, list, and archive older threads. Verify write, replay, projection, and UI restoration paths together.
 
 ## Multi-agent
 
-Multi-agent support appears across core tools, protocol model metadata, TUI session code, thread-store metadata, analytics, and parent/child thread relationships.
+Multi-agent behavior spans `core/src/tools/handlers/multi_agents*`, `thread_manager.rs`, `agent-graph-store`, protocol model metadata, thread-store parent/fork metadata, app-server, and TUI controls. A spawned agent is a related thread with constrained inherited configuration, not parallel work inside one session task.
 
-Important files:
-
-- `codex-rs/core/src/tools/handlers/multi_agents_spec.rs`
-- `codex-rs/core/src/tools/handlers/multi_agents_v2/`
-- `codex-rs/core/src/thread_manager.rs`
-- `codex-rs/thread-store/src/types.rs`
-- `codex-rs/tui/src/multi_agents.rs`
-- `codex-rs/core/tests/suite/subagent_notifications.rs`, `spawn_agent_description.rs`, `multi_agent_mode.rs`
-
-Recent `92938d880` restricted spawned-agent models to the active backend. If changing multi-agent model overrides or spawned-agent configuration, inspect protocol metadata, app/TUI UI controls, and core tool tests together.
-
-## Persistence: rollouts, thread store, and state DB
-
-Codex persists durable conversation history and derived metadata through several crates:
-
-- `codex-rs/rollout`: session/rollout JSONL persistence, compression, listing/search, archived sessions, session index, SQLite state DB hooks, and persistence policy.
-- `codex-rs/thread-store`: live thread store abstraction and local/in-memory implementations. `CreateThreadParams` and `ResumeThreadParams` encode the durable metadata contract.
-- `codex-rs/state`: extraction/projection code used by thread metadata sync and other systems.
-
-Recent history around rollout ordinals and reasoning metadata shows persistence is actively evolving. When changing what is stored, verify both replay and list/projection paths.
+Recent model-override restrictions (`92938d880`) demonstrate that spawn configuration must remain compatible with the active backend and client-visible model choices.
 
 ## Skills
 
-Skills provide model-visible prompt resources selected explicitly or implicitly.
+Skills are prompt resources that can be explicitly or implicitly invoked:
 
-Source map:
+- `core-skills` owns host discovery/loading, policy, namespacing, rendering budgets, and service APIs.
+- `ext/skills` provides typed Host/Executor/Orchestrator integration and read/selection behavior.
 
-- `codex-rs/ext/skills/src/lib.rs`: extension module exports.
-- `catalog`, `provider`, `selection`, `render`, `sources`, `state`, `tools`: skill loading/rendering/read paths.
-- `dynamic_skill_selector/weighted_lexical.rs`: cheap lexical selection algorithm added recently.
-- `shadow_selection_experiment.rs`: temporary metrics-only shadow experiment.
+The weighted lexical selector added in `c10010928` is used for a shadow metrics experiment. `2b0b37abb` aligned candidates with invocation-observable sources. Do not describe this experiment as the production selection path without checking current call sites.
 
-Recent `c10010928` added weighted lexical shadow metrics and `2b0b37abb` aligned the candidate set with observable sources. The experiment filters enabled, prompt-visible Host/Orchestrator skills to match invocation observation. Do not treat shadow selection as the active selection path without verifying current call sites.
+## Plugins, connectors, and extensions
 
-## Plugins, apps, and connectors
+- A typed **extension** contributes runtime behavior through `ext/extension-api`.
+- A **plugin** is an installable manifest/package containing skills, MCP servers, apps, hooks, and presentation metadata.
+- A **connector** supplies app/tool metadata and account/workspace-scoped live MCP tool snapshots.
 
-Plugins and app connectors are related but distinct layers:
-
-- `codex-rs/plugin`: plugin manifest/capability primitives.
-- `codex-rs/core-plugins`: plugin marketplace/install/load/remote/startup-sync manager.
-- `codex-rs/connectors`: app directory metadata and connector runtime snapshots for connector-backed MCP tools.
-- `codex-rs/app-server/src/request_processors/plugins.rs`: app-server plugin operations.
-
-Recent `076a110eb` changed trust for hooks from materialized workspace plugins, and `2f7d89b14` extracted connector runtime snapshot management. These are integration boundaries; inspect tests before assuming a single crate owns behavior.
+See [Integration points](integrations.md) for ownership boundaries.
 
 ## Memories
 
-`codex-rs/memories/README.md` documents the memory pipeline:
+Memory reads and writes are separate crates. `memories/write/src/start.rs` starts the asynchronous pipeline only for non-ephemeral root sessions with `MemoryTool` enabled and an available state DB:
 
-- `memories/read`: read path, memory developer-instruction injection, citation parsing, telemetry classification.
-- `memories/write`: write path, Phase 1 extraction, Phase 2 consolidation prompts/artifacts, workspace diff helpers.
-- Phase 1 extracts per-rollout memories from recent eligible rollouts using state DB claims and retry/backoff.
-- Phase 2 serializes global consolidation, updates filesystem artifacts under the memories root, and may spawn an internal no-network consolidation sub-agent.
+1. Phase 1 claims bounded eligible rollouts and extracts/redacts per-rollout memory into the DB.
+2. Phase 2 serializes global consolidation into a git-backed memory workspace and can run a restricted no-network consolidation agent.
 
-Recent `54b8f112a` preserved parent sandbox enforcement for memory consolidation, so sandbox inheritance is important when editing memory agents.
+Current orchestration lives in `memories/write/`; the statement in `memories/README.md` that it remains under `core/src/memories/` is stale. Parent permission profiles are deliberately preserved or narrowed during consolidation (`54b8f112a`).
 
-## Configuration and feature flags
+## Configuration and features
 
-Configuration types and schema live primarily under `codex-rs/core/src/config/`, `codex-rs/config`, and `codex-rs/core/config.schema.json`. Features live under `codex-rs/features`.
-
-When changing config structs, run `just write-config-schema`. When changing feature behavior, inspect tests in `codex-rs/features/src/tests.rs` and any product surface that exposes the feature.
+Core config types live under `core/src/config/`, generated schema at `core/config.schema.json`, and feature definitions in `features/`. Config changes need loader/strict-config tests and `just write-config-schema`; feature changes need tests at both the registry and consuming product surface.

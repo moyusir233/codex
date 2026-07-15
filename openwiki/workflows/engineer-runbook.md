@@ -1,159 +1,88 @@
 # Engineer runbook
 
-This runbook captures practical commands and operational notes for working in this repository. Prefer source verification for any command that affects release, CI, or generated files.
+## Prerequisites
 
-## Setup
+`docs/install.md` describes Rust, `rustfmt`, Clippy, `just`, DotSlash, and `cargo-nextest` for local work. Build from `codex-rs/` with Cargo or use root `just` recipes. Root maintenance/SDK tooling requires Node 22+ and pnpm 10.33+ (`package.json`).
 
-From `docs/install.md`:
-
-- Supported operating systems include macOS 12+, Ubuntu 20.04+/Debian 10+, and Windows 11 via WSL2.
-- Install Rust, `rustfmt`, `clippy`, `just`, DotSlash, and `cargo-nextest` for local development.
-- Build from `codex-rs/` with `cargo build`.
-- Launch from source with `cargo run --bin codex -- "prompt"` or the root `just codex` helper.
-
-The root `justfile` sets `working-directory := "codex-rs"`, so most recipes can be invoked from the repository root.
-
-## Common run commands
+## Run and diagnose
 
 ```bash
-# Interactive Codex CLI/TUI
-just codex
-just codex "explain this codebase to me"
-
-# Non-interactive exec mode
-just exec "summarize the changes"
-
-# TUI with exec-server
-just tui-with-exec-server
-
-# App-server test client after building CLI
-just app-server-test-client
-
-# MCP server
-just mcp-server-run
-
-# Bazel-built CLI
-just bazel-codex
+just codex "prompt"                 # interactive TUI
+just exec "prompt"                  # non-interactive
+just tui-with-exec-server            # TUI plus exec-server
+just app-server-test-client          # build CLI and launch test client
+just mcp-server-run                  # experimental MCP server
+just bazel-codex                     # Bazel-built CLI
+just log                             # tail structured logs from state SQLite
 ```
 
-Relevant `codex-rs/cli/src/main.rs` subcommands include `exec`, `review`, `login`, `logout`, `mcp`, `plugin`, `mcp-server`, `app-server`, `remote-control`, `doctor`, `sandbox`, `debug`, `resume`, `archive`, `delete`, `unarchive`, `fork`, `cloud`, and `features`.
+The CLI also exposes app-server, daemon/remote-control, doctor, debug, sandbox, plugin/MCP management, and session resume/fork/archive/delete flows (`cli/src/main.rs`). App-server directly supports `--listen` with stdio, Unix, WebSocket, or off transports and `--strict-config` (`app-server/src/main.rs`). Verify live `--help` before relying on experimental operational flags.
 
-## Formatting and linting
+For plaintext TUI logs, `docs/install.md` documents `log_dir` and `RUST_LOG`; do not assume plaintext logging is enabled by default.
+
+## Format, lint, and test
 
 ```bash
-# Format Rust, Bazel/Starlark, Python SDK code, Python scripts, and justfile-supported files
-just fmt
-
-# Check formatting only
 just fmt-check
-
-# Fix clippy warnings for a touched crate
-just fix -p <crate>
-
-# Run clippy without fixing
+just fmt
 just clippy -p <crate>
-```
-
-Repository guidance in `AGENTS.md` says to run `just fmt` automatically after code changes, then scoped `just fix -p <project>` before finalizing large changes. Do not re-run tests after `fix`/`fmt` unless the change warrants it.
-
-Rust style rules from `AGENTS.md` include inline `format!` args when possible, collapsed `if` statements, method references over redundant closures, exhaustive matches where practical, doc comments for new traits, and avoiding `#[async_trait]`/`#[allow(async_fn_in_trait)]` in favor of RPITIT-style future-returning trait methods.
-
-## Tests
-
-```bash
-# Preferred routine test command
+just fix -p <crate>
 just test -p <crate>
-
-# Full suite via nextest; ask before running if expensive
-just test
-
-# GitHub script tests from repository root
-just test-github-scripts
-
-# Bazel tests
-just bazel-test
 ```
 
-Do not run `cargo test` directly for routine validation; use `just test` so `RUST_MIN_STACK`, `NEXTEST_PROFILE=local`, and nextest defaults match the repository workflow.
+Routine tests use nextest; do not substitute `cargo test`. `AGENTS.md` requires formatting after code changes, scoped tests, and scoped `fix` before finalizing large changes. Its “do not rerun tests after fix/fmt” note assumes those commands do not introduce semantic edits; always inspect the final diff.
 
-See [testing-guidance.md](testing-guidance.md) for choosing scoped tests.
+A practical order is: implement and add tests; run focused tests; run scoped fix and final format; inspect the resulting diff and generated artifacts. Ask before an expensive full `just test` when repository guidance requires it.
 
-## Generated files and schemas
+## Generated artifacts
+
+| Change | Command |
+| --- | --- |
+| `ConfigToml` or nested config | `just write-config-schema` |
+| App-server protocol/schema | `just write-app-server-schema` |
+| Hook types/schema | `just write-hooks-schema` |
+| Rust dependency graph | `just bazel-lock-update` then `just bazel-lock-check` |
+
+If code uses `include_str!`, `include_bytes!`, `sqlx::migrate!`, or another compile-time source read, add the file/directory to the crate's Bazel compile/build/test data. Cargo does not model Bazel sandbox availability.
+
+## Cargo, Bazel, and CI
+
+Cargo remains the crate/feature source of truth. Bazel supplies hermetic toolchains, cross-platform tests/builds, and release artifacts (`codex-rs/docs/bazel.md`). That document labels the setup experimental “as of 6/1/2026”; treat the date as source qualification rather than a timeless maturity claim.
+
+Useful checks:
 
 ```bash
-# Config schema after ConfigToml/nested config changes
-just write-config-schema
-
-# App-server protocol schema fixtures
-just write-app-server-schema
-
-# Hook schema fixtures
-just write-hooks-schema
-
-# Bazel lockfile after Rust dependency changes
-just bazel-lock-update
-
-# Check Bazel lock drift
 just bazel-lock-check
+just bazel-test
+just bazel-clippy
+just argument-comment-lint
+just test-github-scripts
+pnpm run format
 ```
 
-Important cautions:
+`just bazel-test` is workspace-wide and potentially expensive; prefer a targeted Bazel label when diagnosing one crate. BuildBuddy credentials belong only in local ignored configuration—never in source or documentation.
 
-- If Rust dependencies change, include `Cargo.toml`/`Cargo.lock` and `MODULE.bazel.lock` updates together.
-- Bazel does not automatically expose source-tree files for compile-time reads. If adding `include_str!`, `include_bytes!`, `sqlx::migrate!`, or similar, update the crate `BUILD.bazel` data attributes.
-- Cargo remains the source of truth for Rust crates/features, while Bazel supplies hermetic builds/toolchains/artifacts (`codex-rs/docs/bazel.md`).
+`.github/workflows/blocking-ci.yml` is the single merge-blocking entrypoint. Its `CI required` gate aggregates Bazel, blob-size policy, cargo-deny, codespell, repo checks, fast Rust CI, and SDK workflows. Fast `rust-ci.yml` is path-sensitive and emphasizes formatting, benchmark smoke, cargo-shear, and argument-comment lint; full cross-platform Rust nextest coverage runs in full/postmerge workflows. CI jobs commonly check for a clean worktree after generators/tests.
 
-## Bazel and BuildBuddy
+## Configuration and secrets
 
-`codex-rs/docs/bazel.md` explains local and CI Bazel behavior:
+Core config lives under `core/src/config/`; app-server has config manager/service code; `docs/config.md` points to canonical product docs and records managed-hook behavior. Test strict config and loading layers when adding fields. Do not read `.env` or document credentials, tokens, keys, or local secret stores.
 
-- `MODULE.bazel` defines dependencies/toolchains.
-- `rules_rs` imports crates from `codex-rs/Cargo.toml` and `Cargo.lock`.
-- `defs.bzl` provides `codex_rust_crate` wrappers.
-- Each crate usually has a `BUILD.bazel` target.
-- Root recipes include `just bazel-test`, `just bazel-clippy`, `just bazel-codex`, and `just build-for-release`.
+## Safe change workflow
 
-BuildBuddy credentials must stay outside committed files (for example `~/.bazelrc` or ignored `user.bazelrc`). Do not document or copy credential values.
+1. Inspect `git status --short`; preserve user changes.
+2. Read `AGENTS.md`, the owning crate manifest/module docs, and nearby tests.
+3. Choose the narrowest owner; resist adding unrelated behavior to core or central TUI files.
+4. Identify compatibility surfaces: protocols, config, tool schemas/context, persistence, clients.
+5. Add focused tests and run the owning crate first.
+6. Run required generators, scoped lint/fix, and final formatting.
+7. Inspect snapshots, schemas, lockfiles, and the full final diff.
+8. Escalate to cross-crate/full/Bazel checks based on [testing guidance](testing-guidance.md).
 
-## Logging and diagnostics
+## Common failure clues
 
-From `docs/install.md`:
-
-- Codex honors `RUST_LOG`.
-- TUI diagnostics are bounded local stores by default.
-- Set `log_dir` to enable plaintext TUI logs:
-
-```bash
-codex -c log_dir=./.codex-log
-tail -F ./.codex-log/codex-tui.log
-```
-
-Non-interactive `codex exec` defaults to `RUST_LOG=error` and prints messages inline.
-
-Other diagnostics:
-
-- `codex doctor` is defined in `codex-rs/cli/src/doctor.rs` and exposed as a CLI subcommand.
-- App-server logging setup is in `codex-rs/app-server/src/lib.rs` and tracing helpers under `app_server_tracing.rs`.
-
-## Config operations
-
-- Basic/advanced/reference config docs are external links from `docs/config.md`.
-- The in-repo `codex-rs/config.md` is only a moved-config notice pointing to canonical docs.
-- App-server config manager code lives in `codex-rs/app-server/src/config_manager*.rs`.
-- Core config is under `codex-rs/core/src/config/`.
-
-When editing config behavior, inspect config loading tests and app-server strict-config tests, then regenerate schema if needed.
-
-## Safe workflow for future agents
-
-1. Check `git status --short` before editing. Preserve user changes.
-2. Read `AGENTS.md` and any nearby module docs/tests before modifying source.
-3. Choose the narrowest crate/module that owns the behavior; avoid growing `codex-core` by default.
-4. Add/update focused tests near the behavior.
-5. Run `just fmt`, scoped `just fix -p <crate>`, and scoped `just test -p <crate>`.
-6. If schemas/locks/generated files are involved, run the matching generation command.
-7. For app-server/protocol/persistence/tool changes, consider compatibility and replay/resume behavior explicitly.
-
-## OpenWiki maintenance notes
-
-Generated documentation belongs under `openwiki/`. Do not edit `openwiki/INSTRUCTIONS.md` unless explicitly asked; it is user-authored control metadata. Keep future updates concise and grounded in source evidence.
+- Cargo passes but Bazel cannot find a file: missing `BUILD.bazel` data declaration.
+- Resume/list differs from live behavior: persisted item, state extraction, and thread metadata projection are out of sync.
+- Model setting appears in one UI only: inspect TUI, app-server model API, provider catalog, and persisted metadata.
+- MCP tool behavior is stale after account/workspace changes: inspect connector runtime identity and snapshots, not only MCP transport code.
+- Approval behavior differs by reviewer: inspect permission hooks first, then Guardian/user routing, exec policy, and sandbox resolution.

@@ -1,68 +1,68 @@
 # Source map
 
-Use this page to find the right part of the repository quickly. It is intentionally a navigation map, not a complete inventory of the 100+ Rust workspace members.
+This is a task-oriented map, not an inventory of every Rust workspace member.
 
-## Root-level files and docs
+## Repository control files
 
-- `README.md`: user-facing Codex CLI introduction and install links.
-- `docs/install.md`: source build requirements, Cargo build flow, `just` helper commands, and tracing notes.
-- `docs/contributing.md`: contribution policy, local checks, model metadata guidance, PR expectations, and CLA/security notes.
-- `docs/config.md`: external links for config docs plus lifecycle hook note for `allow_managed_hooks_only`.
-- `codex-rs/config.md`: moved-config notice pointing to `docs/config.md` canonical links.
-- `AGENTS.md`: repository-local engineering rules. Treat it as high-priority guidance when changing code.
-- `justfile`: root command runner; defaults to `codex-rs` for most recipes.
-- `package.json`: repo-wide maintenance scripts (`format`, `format:fix`, `write-hooks-schema`) and Node/pnpm versions.
-- `MODULE.bazel`, `.bazelrc`, `defs.bzl`, `codex-rs/*/BUILD.bazel`: Bazel workspace, Rust toolchain, rules, and per-crate targets.
+- `README.md`: end-user introduction and install links.
+- `AGENTS.md`: authoritative repository-local engineering and test rules.
+- `docs/install.md`, `docs/contributing.md`, `docs/config.md`: setup, contribution, and config links/notes.
+- `justfile`: standard local commands; most recipes execute in `codex-rs/`.
+- `codex-rs/Cargo.toml`: workspace members, shared dependencies, Rust 2024 edition.
+- `MODULE.bazel`, `defs.bzl`, `.bazelrc`, per-crate `BUILD.bazel`: hermetic/cross-platform build mirror.
+- `package.json`, `pnpm-workspace.yaml`: maintenance tooling and SDK/package workspace.
+- `.github/workflows/`: blocking, fast Rust, full/postmerge, Bazel, repository, and SDK checks.
 
-## Rust workspace manifest
+## Find code by task
 
-`codex-rs/Cargo.toml` is the workspace source of truth for crates and internal dependency names. The workspace uses Rust 2024 edition and Apache-2.0 licensing. New crates should follow the existing `codex-*` crate naming convention.
-
-Large categories in the manifest:
-
-- User/runtime surfaces: `cli`, `tui`, `exec`, `app-server`, `app-server-client`, `app-server-daemon`, `mcp-server`.
-- Core engine and protocols: `core`, `protocol`, `core-api`, `app-server-protocol`, `exec-server-protocol`, `code-mode-protocol`.
-- Persistence/state: `rollout`, `thread-store`, `state`, `agent-graph-store`, `message-history`.
-- Tools/sandboxing/execution: `exec`, `exec-server`, `execpolicy`, `sandboxing`, `linux-sandbox`, `windows-sandbox-rs`, `process-hardening`, `shell-command`, `shell-escalation`.
-- Integrations: `codex-mcp`, `rmcp-client`, `connectors`, `core-plugins`, `plugin`, `hooks`, `ext/*`.
-- Models/auth/network: `login`, `model-provider`, `model-provider-info`, `models-manager`, `backend-client`, `http-client`, `network-proxy`, `ollama`, `lmstudio`.
-- Memory and context: `memories/read`, `memories/write`, `context-fragments`, `prompts`, `response-debug-context`.
-- Utilities: many `utils/*` crates for paths, cache, image, CLI, pty, readiness, output truncation, templates, and other shared helpers.
-
-## Where to start by task
-
-| Task | Start here | Then inspect |
+| Change | Primary sources | Follow-through |
 | --- | --- | --- |
-| CLI flag/subcommand | `codex-rs/cli/src/main.rs` | Related module such as `mcp_cmd.rs`, `plugin_cmd.rs`, `doctor.rs`, `remote_control_cmd.rs`; CLI tests if present |
-| Interactive TUI behavior | `codex-rs/tui/src/main.rs`, `codex-rs/tui/src/lib.rs` | `app/`, `chatwidget/`, `bottom_pane/`, snapshots and focused tests |
-| App-server API | `codex-rs/app-server/src/main.rs`, `codex-rs/app-server/src/lib.rs` | `request_processors/`, `message_processor.rs`, `app-server-protocol/src/protocol/{v1,v2}.rs`, app-server suite tests |
-| Core agent turn/session behavior | `codex-rs/core/src/lib.rs`, `core/src/session/`, `core/src/thread_manager.rs` | `core/src/tools/`, `client.rs`, `context/`, `context_manager/`, `core/tests/suite` |
-| Protocol/event shape | `codex-rs/protocol/src/protocol.rs` | `protocol/src/items.rs`, `models.rs`, `response_item_id.rs`, app-server event mapping/tests |
-| Tool spec or handler | `codex-rs/core/src/tools/spec_plan.rs` | `core/src/tools/handlers/*`, `codex-rs/tools`, suite tests for specific tool |
-| Session persistence/resume/fork/list | `codex-rs/rollout/src/lib.rs`, `codex-rs/thread-store/src/types.rs` | `rollout/src/*`, `thread-store/src/*`, `state/src/*`, TUI resume picker/history tests |
-| MCP integration | `codex-rs/docs/codex_mcp_interface.md` | `codex-rs/codex-mcp`, `rmcp-client`, `mcp-server`, core MCP tool call files/tests |
-| Plugins/apps/connectors | `codex-rs/core-plugins/src/lib.rs`, `connectors/src/lib.rs` | `core-plugins/src/manager.rs`, `connectors/src/connector_runtime/`, app-server plugin/request processors |
-| Skills | `codex-rs/ext/skills/src/lib.rs` | `catalog`, `selection`, `dynamic_skill_selector`, `shadow_selection_experiment.rs`, skills tests |
-| Hooks | `codex-rs/hooks/src/lib.rs` | `hooks/src/events/*`, `registry.rs`, `schema.rs`, core hook runtime/tests |
-| Memories | `codex-rs/memories/README.md` | `memories/read`, `memories/write`, startup tests and state DB interactions |
-| Bazel build issue | `codex-rs/docs/bazel.md` | `MODULE.bazel`, `defs.bzl`, crate `BUILD.bazel`, lockfile/update scripts |
+| CLI flag or command | `codex-rs/cli/src/main.rs` | Command module and parsing tests |
+| Interactive UI | `tui/src/lib.rs`, `app/`, `chatwidget/`, `bottom_pane/` | Focused `*_tests.rs` and snapshots |
+| Core turn/session | `core/src/session/`, `codex_thread.rs`, `thread_manager.rs` | context, client, `core/tests/suite/` |
+| Model-visible tool | `core/src/tools/spec_plan.rs` | handlers, approvals/sandboxing, suite tests |
+| Approval/sandbox | `core/src/tools/{approvals,sandboxing}.rs` | `execpolicy/`, sandbox crates, Guardian, hooks |
+| Internal Op/Event | `protocol/src/protocol.rs` | items, models, event mapping, clients |
+| External app API | `app-server/src/request_processors/` | app-server protocol, schemas, suite tests |
+| Resume/fork/history | `rollout/`, `thread-store/`, `state/` | history projection and UI/core tests |
+| Model/provider | `model-provider/`, `model-provider-info/`, `models-manager/` | core client, model list, TUI settings |
+| Typed extension | `ext/extension-api/src/` | `app-server/src/extensions.rs`, concrete `ext/*` |
+| Installable plugin | `plugin/src/manifest.rs`, `core-plugins/` | app-server plugin processors and policy tests |
+| MCP client | `codex-mcp/`, `rmcp-client/` | core MCP exposure/calls and auth tests |
+| MCP server | `mcp-server/`, `docs/codex_mcp_interface.md` | adapter/interface tests |
+| Connector tools | `connectors/src/lib.rs` | connector runtime, codex-mcp, app-server MCP processor |
+| Host skills | `core-skills/` | core skill injection/service and policy tests |
+| Skills extension | `ext/skills/` | providers, read tools, selector experiment/tests |
+| Lifecycle hook | `hooks/src/` | core hook runtime, approvals, hook schemas |
+| Memory pipeline | `memories/read/`, `memories/write/` | startup, state DB, sandbox tests |
+| Config/feature | `core/src/config/`, `features/` | schema, app-server config, surface tests |
 
-## High-risk source surfaces
+## Key domain clusters
 
-These areas tend to affect multiple clients or persistent data:
+### Client and runtime
 
-- `codex-rs/protocol` and `codex-rs/app-server-protocol`: schema/event/API compatibility.
-- `codex-rs/core/src/session`, `thread_manager.rs`, and `rollout`/`thread-store`: turn lifecycle, resume/fork, and persisted history.
-- `codex-rs/core/src/tools` and `codex-rs/tools`: model-visible tool surface and approval/sandbox behavior.
-- `codex-rs/tui/src/app_server_session.rs`: TUI-to-app-server/core bridge; recent reasoning/model changes touched this file.
-- `codex-rs/core-plugins`, `connectors`, `codex-mcp`, and app-server plugin processors: external app/plugin/MCP behavior.
-- Config types and schema: when `ConfigToml` or nested config types change, regenerate `codex-rs/core/config.schema.json` with `just write-config-schema`.
+`cli`, `tui`, `exec`, `app-server`, `app-server-daemon`, `app-server-client`, `core`, `protocol`, and `app-server-protocol` form the primary user-to-agent path.
 
-## Existing documentation worth linking, not duplicating
+### Execution and safety
 
-- `codex-rs/docs/protocol_v1.md`: protocol concepts and example flows.
+`tools`, `exec`, `exec-server`, `execpolicy`, `shell-command`, `shell-escalation`, `sandboxing`, `linux-sandbox`, Windows sandbox crates, and `process-hardening` implement execution below core policy orchestration.
+
+### Persistence and memory
+
+`rollout`, `thread-store`, `state`, `agent-graph-store`, `memories/read`, and `memories/write` own durable history, projections, and reusable memory. `codex-rs/memories/README.md` still says Phase 1/2 orchestration is under `core/src/memories/`; current source puts startup and phases in `memories/write/`.
+
+### Integration and model infrastructure
+
+`ext/*`, `plugin`, `core-plugins`, `connectors`, `codex-mcp`, `rmcp-client`, `hooks`, `core-skills`, `model-provider`, `model-provider-info`, `models-manager`, `login`, and network/auth crates form the extensibility boundary.
+
+## Existing deep documentation
+
+- `codex-rs/docs/protocol_v1.md`: terminology and example flows; explicitly a potentially lagging spec.
 - `codex-rs/docs/codex_mcp_interface.md`: experimental MCP server interface.
-- `codex-rs/docs/bazel.md`: Bazel/BuildBuddy/local vs CI build behavior.
-- `codex-rs/memories/README.md`: memory pipeline phases and artifacts.
-- `docs/install.md`: source build and tracing setup.
-- `docs/contributing.md`: contribution workflow and local checks.
+- `codex-rs/docs/bazel.md`: Cargo/Bazel relationship and BuildBuddy behavior.
+- `codex-rs/memories/README.md`: detailed memory phases and artifacts, with the ownership caveat above.
+- `codex-rs/tui/styles.md`: TUI styling conventions.
+
+## High-risk search checklist
+
+Before changing shared behavior, search both protocol crates and schemas; thread manager plus all persistence layers; tool specs plus approval/sandbox code; TUI settings/session/snapshots; app-server processors and v2 tests; and both Cargo and Bazel metadata.

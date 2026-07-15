@@ -1,95 +1,69 @@
 # Testing guidance
 
-Use this page to choose focused validation for Codex changes. The repository is large; prefer scoped tests first, then broader checks only when the touched area is shared or high-risk.
+Prefer the narrowest test target that owns the behavior, then expand for shared protocols, persistence, model-visible tools, safety, or cross-client changes.
 
-## Default commands
-
-From `AGENTS.md` and the root `justfile`:
+## Defaults
 
 ```bash
-# Preferred routine test command
-just test -p <crate>
-
-# Full nextest suite; ask before running if expensive
-just test
-
-# Format after code changes
+just test -p <crate>       # nextest, local profile, no-fail-fast
+just clippy -p <crate>
 just fmt
-
-# Clippy fix for a touched crate
-just fix -p <crate>
-
-# GitHub script tests
-just test-github-scripts
-
-# Bazel tests
-just bazel-test
 ```
 
-Do not run `cargo test` directly for routine work. The `just test` recipe sets `RUST_MIN_STACK=8388608`, `NEXTEST_PROFILE=local`, and uses `cargo nextest run --no-fail-fast`.
+The default nextest profile retries once and terminates tests after two consecutive 30-second slow periods. App-server integration tests are serialized in the default/CI profile but allow up to four local subprocesses; Windows-heavy and apply-patch groups have tighter concurrency (`codex-rs/.config/nextest.toml`).
 
-## Test organization rules
+## Test by area
 
-Repository guidance:
+| Area | Initial validation | Expand when needed |
+| --- | --- | --- |
+| TUI | `just test -p codex-tui` | Review/accept intentional `insta` snapshots |
+| CLI | `just test -p codex-cli` | Command module and end-to-end parsing/invocation tests |
+| Core session/tools | `just test -p codex-core` | `core/tests/suite`, protocol, app-server/TUI consumers |
+| App-server | `just test -p codex-app-server` | v2 suite and protocol schema tests |
+| Protocol | `codex-protocol`, `codex-app-server-protocol` | event mapping, clients, generated schemas |
+| Persistence | `codex-rollout`, `codex-thread-store`, `codex-state` | resume/fork/list/history across core/app-server/TUI |
+| Typed extensions | `codex-extension-api` and concrete extension crate | app-server extension composition |
+| Skills | `codex-core-skills` or `codex-skills-extension` | implicit invocation and selector tests |
+| Plugins | `codex-plugin`, `codex-core-plugins` | app-server effective state and policy/startup sync |
+| MCP | `codex-mcp`, `codex-rmcp-client` | core MCP suite, auth/elicitation/exposure |
+| Connectors | `codex-connectors` | connector runtime identity/persistence plus MCP consumers |
+| Hooks | `codex-hooks` | core `hooks`/`hooks_mcp`, approval ordering, regenerate schema |
+| Models | provider/info/manager crate | core client, app-server list, TUI settings, persistence |
+| Safety | `codex-execpolicy`, `codex-sandboxing`, platform crate | core approval/sandbox/Guardian integration |
+| Memories | read/write crates | startup, phase, DB lease, workspace roots/sandbox tests |
 
-- Prefer integration tests for agent logic changes.
-- Core integration tests live under `codex-rs/core/tests/suite` and use `test_codex` helpers.
-- Unit tests, when needed, should usually live in dedicated sibling `*_tests.rs` files with explicit `#[path = "..."]` module attributes.
-- Prefer comparing whole objects over checking fields one by one.
-- Do not add tests for values that are statically defined.
-- Do not add negative tests for logic that was removed.
-- Avoid test-only helpers in main implementation code.
+Use exact Cargo package names from `codex-rs/Cargo.toml` when a shorthand above is ambiguous.
 
-## Choose tests by area
+## Test organization
 
-| Changed area | Start with |
-| --- | --- |
-| TUI UI/rendering/settings | `just test -p codex-tui`; targeted tests under `codex-rs/tui/src/**`; update `snapshots/` when intentional |
-| CLI command parsing/doctor/plugin/MCP commands | `just test -p codex-cli`; inspect module-specific tests or add focused unit tests |
-| Core agent/session/tool behavior | `just test -p codex-core`; relevant files under `codex-rs/core/tests/suite` |
-| App-server API | `just test -p codex-app-server`; suite under `codex-rs/app-server/tests/suite`, especially `suite/v2` |
-| Protocol/app-server schema | `just test -p codex-protocol` or `codex-app-server-protocol`; run `just write-app-server-schema` for generated schema fixtures |
-| Rollout/thread persistence | `just test -p codex-rollout`, `just test -p codex-thread-store`, plus core/app-server resume/list tests if behavior crosses layers |
-| Multi-agent tools | Core handler tests under `core/src/tools/handlers/multi_agents*`, core suite `subagent_notifications`, `spawn_agent_description`, `multi_agent_mode` |
-| Skills | `just test -p codex-skills-extension` or the relevant ext skills crate; `codex-rs/ext/skills/tests/*`; selector unit tests |
-| Plugins | `just test -p codex-core-plugins`; manager/marketplace/startup sync tests |
-| Connectors/MCP runtime | `just test -p codex-connectors`, `codex-mcp`, and core MCP suite tests depending on boundary touched |
-| Hooks | `just test -p codex-hooks`; core suite `hooks.rs`, `hooks_mcp.rs` if runtime behavior changes |
-| Memories | `just test -p codex-memories-write`, `codex-memories-read`; startup/phase tests; preserve sandbox assumptions |
-| Bazel metadata/build files | `just bazel-lock-check`, `just bazel-test` or targeted Bazel command |
+`AGENTS.md` requires agent-logic changes to have integration coverage. Core integration tests live in `core/tests/suite` and use `test_codex`. New unit-test modules should generally be sibling `*_tests.rs` files wired with `#[path = "..."]`. Prefer whole-object equality, avoid test-only implementation APIs, and do not test static constants merely for existing.
 
-## Snapshot tests
+## Snapshot and generated-file checks
 
-The TUI uses snapshot tests extensively, visible under `codex-rs/tui/src/**/snapshots/`. Recent commits added/updated snapshots for reasoning selection popups, skill toggle widths, composer completion behavior, and diff rendering.
+User-visible TUI changes require snapshot coverage. Run `just test -p codex-tui`, inspect `*.snap.new`, and accept only intentional changes (for example with `cargo insta accept -p codex-tui`). Do not hide broad visual churn in a functional change.
 
-When a UI change intentionally alters output:
+Schema and lockfile changes must be regenerated with the matching runbook command. CI's clean-worktree checks catch forgotten generated output, but local review should catch it first.
 
-1. Run the relevant TUI test target.
-2. Inspect the snapshot diff carefully.
-3. Update snapshots only when the change is intended and source behavior supports it.
-4. Avoid broad UI churn from style-only refactors.
+## Cross-cutting risk matrix
 
-## High-risk integration tests
+Broaden tests for:
 
-Run broader or cross-crate coverage when touching these areas:
+- Internal/external protocol changes: all consumers, schema fixtures, raw item mapping.
+- Thread/session/persistence changes: create, resume, fork, list, archive, replay, projection.
+- Tool/context changes: model-visible spec, execution handler, truncation, approvals, client events.
+- Permission/sandbox changes: hooks, Guardian/user routing, exec/network amendments, platform backends.
+- Model/reasoning changes: provider catalog, app-server, TUI, metadata sync, unsupported modalities.
+- Plugin/connector/MCP changes: startup/effective state, identity/auth, tool exposure, app-server integration.
+- Multi-agent changes: parent/child metadata, model constraints, notifications, app/TUI controls.
 
-- `codex-rs/protocol` or `codex-rs/app-server-protocol`: app-server clients, TUI, core event mapping, schema artifacts.
-- `codex-rs/core/src/session`, `thread_manager.rs`, `rollout`, `thread-store`: resume/fork/history/replay and app-server thread APIs.
-- `codex-rs/core/src/tools`: core suite tool tests, approval/sandbox tests, and any affected TUI/app-server surface.
-- Permissions/sandbox/guardian: approvals, exec policy, guardian review, network approval, platform sandbox tests.
-- Model metadata/reasoning: TUI popups/settings, app-server model list/resume, thread metadata sync, unsupported image behavior.
-- Plugins/connectors/MCP: app-server plugin list, core plugin manager tests, MCP auth/refresh/tool exposure tests.
+## CI expectations
 
-## Recent-history test hints
+Blocking CI aggregates Bazel, repository policy, supply-chain/spelling/blob checks, fast Rust checks, and SDK tests. The fast Rust workflow is not the full workspace test suite. Full Rust target/build/nextest coverage runs in full/postmerge or opt-in workflows, while Bazel remains a blocking family.
 
-The recent git log is a good guide to current regression-sensitive areas:
+Repository checks also cover workspace-manifest inheritance, TUI/core dependency boundaries, Cargo/Bazel Clippy parity, packaging/installers, Prettier, and clean worktrees. SDK CI separately validates Python and TypeScript surfaces.
 
-- Skill shadow selection changes added `codex-rs/ext/skills/tests/implicit_invocation.rs` and selector tests.
-- Multi-agent model restriction updated `multi_agents_spec_tests.rs`, `multi_agents_tests.rs`, protocol model metadata, and TUI popup/settings tests.
-- Advanced reasoning selection added TUI app tests and popup snapshots, plus app-server thread resume and thread metadata sync coverage.
-- Connector runtime extraction moved tests from `codex-mcp` into `codex-rs/connectors/src/connector_runtime/tests.rs`.
-- Rollout ordinals touched app-server protocol projection, CLI doctor inventory, core suite SQLite state, and rollout tests.
+## When to run broad checks
 
-## When to run full suite
+Consider full `just test` for changes to core/shared protocols, config loading, persistence, or cross-cutting model/tool behavior; follow `AGENTS.md` guidance about asking before the expensive workspace sweep. Use targeted Bazel tests for build metadata or platform/resource issues before `just bazel-test`. Run full-format/repository checks when touching root scripts, workflows, SDKs, or generated metadata.
 
-Use scoped tests for most changes. Consider full `just test` when changes affect shared crates such as `codex-core`, `codex-protocol`, `codex-app-server-protocol`, config loading, persistence, or cross-cutting model/tool behavior. `AGENTS.md` says to ask before running the complete test suite after common/core/protocol changes.
+Recent commits are useful test maps: skill selection added implicit-invocation/selector tests; advanced reasoning touched app-server resume, state/thread metadata, TUI tests, and snapshots; connector runtime extraction moved its tests into `connectors`; rollout ordinals crossed protocol projection, doctor, core SQLite, and rollout tests.
