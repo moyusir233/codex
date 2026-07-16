@@ -1,7 +1,7 @@
 # `dev-lark-sdk-feature` Workflow Design
 
 **Date:** 2026-07-16  
-**Status:** Design sections approved; written-spec review pending  
+**Status:** Design approved; listener/ownership/shutdown safety amendments pending plan approval
 **Repository:** `codex/`  
 **Target repository:** `/Users/bytedance/project/lark-client-ai-know-bugfix/rust-sdk`
 
@@ -189,14 +189,16 @@ Names in this subsection are proposed APIs, not current types.
 | `WorkflowRuntime` | workflow crate | One run's stage machine and durable checkpoints. |
 | `WorkflowManifest` | workflow crate | Versioned, non-secret durable run state. |
 | `ManifestStore` | workflow crate | Atomic reads/writes and artifact layout. |
+| `RunStateCommitter` | workflow crate | Sole per-run serializer for state, sequence, stage presentations, bounded journal, and durable manifest writes. |
 | `LarkCommandRunner` | workflow crate | Injectable argv-based, cancellation-aware process boundary. |
 | `LarkClient<R>` | workflow crate | Typed group, member, polling, and send operations over a runner. |
 | `WorkflowCodexHost` | workflow crate/app-server adapter | Feature-specific port for root/child creation, submission, lookup, waiting, interruption, and shutdown. |
-| `ManagedChildSpec` | core public façade | Stage prompt, working directory, lineage, and instruction overrides. |
-| `ManagedChildStart` | core public façade | Child thread ID, initial turn ID, and agent path. |
+| `ManagedChildSpec` | core public façade | Stage working directory, lineage, instruction overrides, and immutable workflow correlation; it does not submit input. |
+| `ManagedChildHandle` | core public façade | Durably correlated child thread ID and agent path returned before the initial turn starts. |
 | `WorkflowTurnTracker` | app-server | Waiters and bounded terminal cache fed by the sole thread listener. |
 | `WorkflowThreadLeaseRegistry` | app-server | Pins the root and active stage child against subscriberless idle unloading. |
-| `WorkflowProgressSink` | app-server adapter | Persists then projects root-scoped workflow progress. |
+| `WorkflowThreadMutationPolicy` | app-server | Uses immutable stage correlation to reject external model/context/task mutations while preserving workflow-owned submission and ordinary approval responses. |
+| `WorkflowProgressSink` | app-server adapter | Projects only immutable updates already committed by `RunStateCommitter`. |
 
 `WorkflowCodexHost` is a feature-specific dependency-inversion boundary, not a generic workflow
 framework. The app-server implementation delegates to `ThreadManager`, the turn tracker, and the
@@ -212,7 +214,9 @@ They do not own locks, `Arc<CodexThread>`, cancellation tokens, command runners,
 The workflow crate provides one Clap-derived invocation parser and subcommand enum. The direct CLI
 embeds the same subcommand type under `codex workflow`. The TUI uses its existing slash parser to
 extract the untouched remainder, splits it with a shell-lexing library, and invokes the same Clap
-parser. No shell executes the parsed string.
+parser. The shared token parser accepts tokens after `/workflow` or `codex workflow` and prepends a
+synthetic program name before `clap::Parser::try_parse_from`, so the leading
+`dev-lark-sdk-feature` token is not consumed as argv[0]. No shell executes the parsed string.
 
 Supported arguments:
 
@@ -346,8 +350,10 @@ The method contracts are explicit:
 - start accepts only `preparationId` and returns a snapshot containing `runId` and the selected or
   created parent thread ID;
 - read accepts `parentThreadId`, optional `runId`, and optional `afterSequence`; omission of run ID
-  returns that parent's current run. It returns the current snapshot, retained transitions after
-  the requested sequence, and `historyTruncated` when the requested sequence predates retention;
+  returns that parent's current run. It returns the current snapshot, a fixed three-stage
+  `stagePresentations` map, retained transitions after the requested sequence, and
+  `historyTruncated` when the requested sequence predates retention. The fixed map remains
+  authoritative after the 256-transition journal evicts an earlier stage-completion transition;
 - cancel accepts a tagged target of either `preparationId` or `runId` and is idempotent. A
   preparation-targeted cancel that wins before accepted start invalidates the preparation with no
   side effects; if start already mapped it, cancel resolves and cancels that run.
@@ -394,8 +400,11 @@ for every emission instead of retaining a stale `ThreadScopedOutgoingMessageSend
 
 ### 9.1 TUI
 
-Add `SlashCommand::Workflow`, mark it as accepting inline arguments, and route it through a focused
-workflow module rather than expanding the central chat widget. Relevant current paths are:
+Add `SlashCommand::Workflow`, mark it as accepting inline arguments, and route it through focused
+`tui/src/workflow/{controller,state,render}.rs` modules rather than expanding the central chat
+widget or already-large slash dispatcher. Existing `app.rs`, `chatwidget.rs`, and
+`chatwidget/slash_dispatch.rs` remain thin event/command/render integration points. Relevant
+current paths are:
 
 - command registry: `codex-rs/tui/src/slash_command.rs:12-170`;
 - inline arguments: `codex-rs/tui/src/bottom_pane/chat_composer/slash_input.rs:68-127`;
@@ -530,6 +539,8 @@ The versioned manifest includes at least:
 
 - schema version `1`, workflow name, and run ID;
 - the preparation-token hash, normalized invocation digest, and idempotent start result;
+- invocation ownership (`ExistingParent` or `WorkflowCreatedRoot`) so explicit retrigger cannot
+  attach a run to a different parent or surface mode;
 - a non-secret external-effect approval record containing confirmation-text digest, approval time,
   client kind, normalized developers/artifact path, and bot application identity;
 - canonical SDK repository and artifact paths;
@@ -542,6 +553,8 @@ The versioned manifest includes at least:
   entries;
 - per-message processing checkpoints for the nonterminal contiguous prefix;
 - bounded recent transition records and outbound stable references/idempotency state;
+- a separate fixed three-stage presentation map containing bounded authoritative assistant output
+  and artifact paths for research, design, and implementation;
 - design approval message, approver, timestamp, and SHA-256 digest;
 - failure record and cancellation state.
 
@@ -553,6 +566,14 @@ sync where the platform supports directory handles. The implementation follows t
 pattern in `codex-rs/network-proxy/src/certs.rs:687-751` rather than the weaker convenience helper
 that omits `sync_all`. State is persisted before a progress notification. Intent/commit
 checkpoints surround root/child creation, group creation, and outbound messages.
+
+`RunStateCommitter` is the only writer for current state, monotonic sequence, fixed stage
+presentation map, and bounded transition journal. Under one per-run async mutex it derives a next
+manifest, writes it atomically, swaps the in-memory snapshot only after success, and returns an
+immutable `CommittedWorkflowUpdate`. Stage progression, cancellation, failure, and completion all
+use this operation. App-server's progress sink only projects that returned value; it does not
+perform a second manifest mutation. A terminal-write failure uses a separate explicitly
+non-durable notification path and leaves the last committed snapshot unchanged.
 
 Ordinary root and child rollout history remains owned by `ThreadStore`; existing state projection
 continues to populate SQLite. The workflow manifest stores orchestration checkpoints and foreign
@@ -583,8 +604,10 @@ silently truncating trusted state or model input:
 
 - at most 50 developers and a 128-byte open-ID suffix;
 - at most 8 KiB of UTF-8 text in one inbound Lark message;
-- at most 9,000 model tokens in one fully rendered model-visible user item, checked before
-  submission so the repository's 10K-token ceiling is not crossed;
+- a conservative 9,000-token upper budget for one fully rendered model-visible user item,
+  implemented as `rendered.as_bytes().len() <= 9_000` before persistence/submission. The existing
+  approximate counter is a coarse lower estimate and is not used as the safety gate; one UTF-8
+  byte per token is the byte-level transport's conservative worst case;
 - at most 256 KiB in one authoritative assistant output and at most 32 outbound 8 KiB parts;
 - at most 4 MiB stdout and 256 KiB stderr from one `lark-cli` invocation;
 - page size 50 and at most 100 pages per polling pass before yielding/backing off;
@@ -761,8 +784,6 @@ Add these narrowly scoped public APIs around the existing internal managed-agent
 pub struct ManagedChildSpec {
     pub parent_thread_id: ThreadId,
     pub cwd: PathBuf,
-    pub initial_input: Vec<UserInput>,
-    pub client_user_message_id: String,
     pub additional_developer_instructions: String,
     pub correlation: ManagedChildCorrelation,
     pub agent_name: String,
@@ -776,15 +797,19 @@ pub struct ManagedChildCorrelation {
     pub spawn_attempt_id: String,
 }
 
-pub struct ManagedChildStart {
+pub struct ManagedChildHandle {
     pub child_thread_id: ThreadId,
-    pub initial_turn_id: String,
     pub agent_path: AgentPath,
 }
 
-pub enum ManagedChildSpawnError {
+pub enum ManagedChildCreateError {
     BeforeThread(CodexErr),
     AfterThread { child_thread_id: ThreadId, source: CodexErr },
+}
+
+pub enum WorkflowRootStartError {
+    BeforeThread(CodexErr),
+    AfterThread { thread_id: ThreadId, source: CodexErr },
 }
 
 pub enum InterruptTurnOutcome {
@@ -793,10 +818,30 @@ pub enum InterruptTurnOutcome {
 }
 
 impl ThreadManager {
-    pub async fn spawn_managed_child(
+    pub async fn start_workflow_root(
+        &self,
+        options: StartThreadOptions,
+        correlation: WorkflowThreadCorrelation,
+    ) -> Result<NewThread, WorkflowRootStartError>;
+
+    pub async fn create_managed_child(
         &self,
         spec: ManagedChildSpec,
-    ) -> Result<ManagedChildStart, ManagedChildSpawnError>;
+    ) -> Result<ManagedChildHandle, ManagedChildCreateError>;
+
+    pub async fn resume_managed_child(
+        &self,
+        parent_thread_id: ThreadId,
+        child_thread_id: ThreadId,
+        expected_correlation: WorkflowThreadCorrelation,
+    ) -> Result<ManagedChildHandle, ManagedChildCreateError>;
+
+    pub async fn submit_managed_child_initial_input(
+        &self,
+        child_thread_id: ThreadId,
+        input: Op,
+        client_user_message_id: String,
+    ) -> CodexResult<String>;
 
     pub async fn shutdown_agent_subtree(
         &self,
@@ -812,20 +857,37 @@ impl CodexThread {
 `ManagedChildCorrelation` contains the non-secret `(runId, stage, spawnAttemptId)` identity and is
 persisted as optional metadata alongside the existing `ThreadSpawn` parent/depth/path metadata.
 The listed API is the intended public surface; module placement and imports do not change these
-ownership or result semantics. The façade delegates to the parent's existing `AgentControl`; it
-must not duplicate spawn logic.
+ownership or result semantics. Correlation is immutable and exposed through a narrow read-only
+`CodexThread` accessor so app-server can identify a stage child before asynchronous registration.
 
-The spawn operation:
+Creation and initial submission are deliberately separate. Creation:
 
 - preserves `ThreadSpawn` parent metadata and agent path;
 - participates in depth/capacity accounting and graph status;
 - applies the stage working directory;
-- clones the parent configuration;
+- derives configuration from the parent's current effective config/snapshot;
 - appends bounded stage-specific developer instructions without replacing base instructions;
-- submits the initial input through the ordinary core path with the provided stable client user
-  message ID;
-- returns the child and initial visible-turn identities;
+- writes and flushes immutable correlation before returning;
+- starts no task and returns no visible-turn identity;
 - reports a child ID in a partial-spawn error when cleanup/recovery needs it.
+
+Between create and submit, the app-server host acquires the child lease, starts the same sole
+ordinary listener task even when there is no client connection, and activates the immutable-
+correlation mutation policy. Only then does it call `submit_managed_child_initial_input`, which
+uses `CodexThread::submit_user_input_with_client_user_message_id` and the ordinary submission/task/
+sampling path. This ordering removes the race in the current internal spawn helper, which emits
+`notify_thread_created` and immediately submits input in one call.
+
+The façade delegates create and subtree shutdown to the loaded parent/target thread's existing
+`session.services.agent_control`. It never calls `ThreadManager::agent_control()`, because that
+method constructs a fresh registry rather than the root tree's shared graph/capacity state. This
+access remains core-internal; `Session` and `AgentControl` are not made public.
+
+Managed-child recovery likewise cannot use ordinary top-level `resume_thread_from_rollout`, which
+constructs a new control for a root. `resume_managed_child` validates persisted parent lineage and
+correlation, then calls the existing crate-private agent resume path with the loaded parent's
+shared control. Resumed siblings therefore remain in one capacity/registry tree and root subtree
+shutdown reaches them all.
 
 Before calling the façade, the workflow persists `ChildSpawnIntent` with the correlation and
 stable initial message ID. After a crash, the app-server `WorkflowCodexHost` adapter searches live
@@ -869,10 +931,40 @@ and chooses the authoritative output:
 Missing output is a typed failure, not an empty successful response. Workflow tracker updates do
 not steal or suppress the normal notification sent to clients.
 
-Workflow-owned children reject unrelated external `turn/start` while the stage is active. This
-protects sequential Lark ordering and the one-active-task invariant. Once a stage finishes, its
-subtree is flushed and shut down; its rollout and thread metadata remain available for history and
-recovery.
+The listener lifecycle has an internal lease-owned attach path that creates thread state and starts
+the same registered listener task without requiring a live `ConnectionId`. Ordinary client attach
+later adds subscribers to that state and reuses the task. The host awaits this listener-ready
+barrier before initial submission, so a fast model response or a local-daemon client disconnect
+cannot strand the workflow tracker. No second receiver or listener task is introduced.
+
+Before initial submission, app-server also subscribes every current root/run observer connection
+to the active child. This is required because approvals, elicitation, and tool-input server
+requests are child-thread scoped, even though workflow progress is root-scoped. Attachment uses a
+new `ThreadListenerCommand::AttachWorkflowObserver`, following the existing listener-command
+serialization pattern. In the sole listener task's biased command branch it checks/inserts the
+connection and, only if new, replays requests already pending before acknowledging. Core event
+handling cannot run concurrently: a request preceding the command is replayed, while a request
+following it is delivered live, so the two paths cannot duplicate one request. `workflow/read`
+re-subscribes the root and awaits this child barrier; repeated read for an already subscribed
+connection replays nothing. After close removes the subscription, a new connection gets one
+ordered replay. With no connected client, the sole listener continues tracking ordinary events
+under its lease, while an approval may wait safely until an observer reconnects; it is never
+orphaned or delivered through a second receiver.
+
+One centralized `WorkflowThreadMutationPolicy` classifies requests before `MessageProcessor`
+dispatch, covering separate thread, goal, and turn processors. It checks immutable live-thread
+correlation before every client-initiated state/task/execution mutation. A correlated stage child
+rejects turn start, item injection, steering, direct interrupt, realtime mutation, review start,
+name/metadata/settings/memory/goal changes, unarchive, compaction, rollback, fork, background-terminal
+mutation, and shell command with a typed workflow-ownership conflict. A classification test
+enumerates current thread/turn request variants so a new mutator requires an explicit decision.
+This applies immediately after core creation even if the thread-created broadcast is delayed or
+dropped. Workflow host submissions bypass only the app-server RPC check and still enter ordinary
+core APIs; reads/subscriptions and approval/guardian/elicitation responses needed by that ordinary
+path remain allowed. Archive/delete of a workflow root or child first requests whole-run
+cancellation and bounded cleanup, and does not silently destroy state if cleanup fails.
+Once a stage finishes, its subtree is flushed and shut down; its rollout and metadata remain
+available for history and recovery.
 
 ### 12.3 App-server thread leases
 
@@ -881,11 +973,15 @@ The current app-server unloads a subscriberless idle thread after 30 minutes in
 requirement or design approval can legitimately exceed that interval.
 
 `WorkflowThreadLeaseRegistry` therefore reference-counts internal leases for the root and active
-stage child. The thread listener consults this registry before subscriber-based idle unload. The
-manager acquires leases before exposing a child as active and releases them only after terminal
-workflow cleanup. Leases do not prevent explicit cancellation, archive/delete shutdown, or
-app-server process exit. After process restart, explicit retrigger restores live threads and leases
-from durable state.
+stage child. The thread listener consults this registry before subscriber-based idle unload. After
+core creates a child, the manager acquires its lease and starts the connection-independent sole
+listener before submitting initial input; the lease remains valid when all local-daemon clients
+disconnect. The manager transfers/releases stage leases at normal finalization and releases root
+leases only after terminal workflow cleanup. Leases do not prevent explicit cancellation,
+archive/delete shutdown, or app-server process exit. After process restart, explicit retrigger
+restores live threads, listener readiness, and leases from durable state. If the last lease is
+released after the old subscriberless deadline, a fresh 30-minute grace period begins rather than
+polling an already-expired timer.
 
 ## 13. Stage Prompts and Artifacts
 
@@ -1029,6 +1125,17 @@ Parent `wait_until_terminated` is watched by the manager. Graceful parent shutdo
 delete, or embedded app-server shutdown cancels the workflow. An unexpected local-daemon client
 disconnect does not cancel server-owned work; a reconnect repairs through `workflow/read`.
 
+Both app-server teardown implementations call idempotent `WorkflowManager::shutdown` before they
+clear runtime references, close/remove connections, shut RPC gates, clear ordinary thread
+listeners, drain generic background work, or shut down core threads. Outgoing delivery and child
+subscriptions remain usable during this call so a writable transport can receive the required
+terminal notification; otherwise the durable state remains repairable through read after restart.
+The manager closes new-work admission, performs cancellation while tracker/listener/thread
+ownership is intact, and waits within the app-server shutdown deadline. At deadline it aborts
+remaining orchestration only after recording the most honest durable cancelling/failure state
+possible; generic teardown may then continue, but must never report false workflow completion or
+cancellation.
+
 A Lark group is never automatically deleted.
 
 ## 16. Failure Model
@@ -1087,7 +1194,11 @@ After fresh validation and confirmation, `workflow/start` acquires locks in the 
 - conflicting invocation identity is rejected rather than merged.
 
 Direct CLI recovery reuses the root thread recorded in the manifest. TUI recovery must be invoked
-from that owning parent thread. The runtime first calls `ThreadManager::get_thread`; if a recorded
+from that owning parent thread. The persisted invocation digest covers the ordered normalized
+developers, canonical repository, normalized artifact directory, workflow/schema version, and
+ownership mode. Any mismatch—including a different TUI parent or an attempt to recover a
+TUI-owned run through direct-CLI root mode—returns a typed conflict before thread, artifact, or
+Lark recovery effects. The runtime first calls `ThreadManager::get_thread`; if a recorded
 root or child is not live, it uses the existing rollout resume path and verifies persisted source
 correlation before continuing.
 
@@ -1151,9 +1262,14 @@ All implementation follows red-green-refactor with focused tests.
   intent, chat persistence, turn submission, assistant persistence, send, cursor commit, and
   terminal child completion.
 - explicit retrigger behavior, completed-new-run behavior, and conflict rejection.
+- owning-parent/surface-mode recovery, direct-CLI reuse of its recorded root, and invocation-digest
+  mismatch rejection before recovery effects.
 - final-manifest-write and cancellation-cleanup failure remain visibly recoverable rather than
   falsely cancelled/completed.
 - no credentials in serialized state.
+- sentinel access/refresh tokens, raw stderr, and authorization URL query/fragment material never
+  enter manifests, failure records, prompt audits, or artifacts; only an allow-listed query-free
+  developer-console origin/path may be surfaced as a bounded safe diagnostic.
 
 ### 19.3 Lark adapter
 
@@ -1169,8 +1285,12 @@ All implementation follows red-green-refactor with focused tests.
 
 ### 19.4 Core and ordinary agent path
 
-- managed child lineage, `ThreadSpawn` metadata, graph capacity, and initial turn ID.
+- two-phase managed child lineage, `ThreadSpawn` metadata, graph capacity, and proof that no task
+  or model request starts before the explicit initial-submit API.
 - persisted run/stage/spawn correlation and stable initial client message ID.
+- shared parent `AgentControl` registry for siblings/descendants/capacity and subtree shutdown.
+- managed-child resume through the parent's control, with resumed siblings still sharing
+  capacity/registry state and root subtree shutdown.
 - partial spawn failure, active-turn interruption, subtree shutdown, and rollout retention.
 - sequential multiple Lark submissions to one child through
   `submit_user_input_with_client_user_message_id`.
@@ -1189,6 +1309,15 @@ bodies. The existing function-call sequence helper in
 - current-subscriber projection, unsubscribe/reconnect behavior, and `read` repair.
 - paused-time test proving an active workflow lease prevents the current 30-minute subscriberless
   unload, followed by terminal lease release.
+- zero-connection lease-owned listener readiness, immediate child completion, dropped
+  thread-created notification, and later subscriber reuse without receiver competition.
+- child-scoped approval/tool-input delivery before first tool, disconnect while pending, and
+  reconnect/read subscription plus replay without duplication; repeated read on the same live
+  connection performs no replay, a newly subscribed connection receives one, and approval
+  creation racing the listener-command barrier is delivered exactly once.
+- public-RPC rejection of every guarded stage-child mutation plus archive/delete cancellation.
+- fixed research/design/implementation presentation repair after the transition journal truncates.
+- both app-server teardown paths cancelling workflows before listener/thread teardown.
 - response-before-completion, cancellation races/idempotency, and exactly one terminal notification.
 - typed in-process parity and guaranteed workflow-completion delivery.
 - authoritative assistant extraction and no terminal-summary fallback.
@@ -1222,16 +1351,16 @@ to be online.
 
 Focused verification after implementation:
 
-1. `just fmt` from `codex-rs`.
-2. `just fix -p <affected-crate>` for each affected Rust crate; use workspace-wide fix only when
-   shared-crate changes require it.
-3. `just write-app-server-schema` for the ordinary v2 workflow API.
-4. `just test -p codex-app-server-protocol`.
-5. focused tests for the new workflow crate, core, app-server, TUI, and CLI.
-6. review and accept intentional TUI snapshots.
-7. update Cargo/Bazel dependency locks and compile-data declarations when dependencies or embedded
+1. focused tests for the new workflow crate, core, app-server, TUI, and CLI.
+2. `just write-app-server-schema` and its schema tests for the ordinary v2 workflow API.
+3. review and accept intentional TUI snapshots.
+4. update Cargo/Bazel dependency locks and compile-data declarations when dependencies or embedded
    prompts require them.
-8. affected Bazel targets, including prompt data/runfile coverage.
+5. affected Bazel targets, including prompt data/runfile coverage.
+6. after all tests, `just fix -p <affected-crate>` for each affected Rust crate; use workspace-wide
+   fix only when shared-crate changes require it.
+7. run `just fmt` and `just fmt-check` last. Per repository guidance, do not rerun tests after the
+   final fix/format pass.
 
 Repository guidance requires asking before the complete Codex workspace test suite after shared
 core/protocol changes. No success claim is made until verification-before-completion has checked
@@ -1255,13 +1384,17 @@ repository's review-size guidance means implementation must be decomposed into c
 individually tested milestones rather than one monolithic diff:
 
 1. workflow domain/parser/validation/persistence/Lark fakes and prompt fixtures;
-2. narrow core managed-child façade and integration coverage;
+2. durable correlation/projection, followed by a separate narrow two-phase core façade commit;
 3. app-server protocol, manager adapters, tracking, schema, and public API tests;
 4. TUI and CLI clients, rendering, cancellation, and snapshots;
 5. complete stage orchestration, cross-boundary tests, documentation, and verification.
 
-The detailed implementation plan will identify dependency-safe commits and red-green checkpoints.
-This decomposition does not introduce a generic framework or reduce the final required behavior.
+Runtime code is split by responsibility into coordinator, initialization, recovery, cancellation,
+terminal persistence, and stage modules; there is no catch-all `runtime.rs`. Every milestone checks
+the repository's approximate 500-line target and 800-line review limit and subdivides before
+commit if needed. The detailed implementation plan identifies dependency-safe commits and
+red-green checkpoints. This decomposition does not introduce a generic framework or reduce the
+final required behavior.
 
 ## 22. Developer Documentation
 
@@ -1296,6 +1429,9 @@ Verified drift or constraints:
 
 Remaining gaps recorded rather than guessed:
 
+- Codex exposes only a coarse approximate counter, not a provider-accurate preflight tokenizer;
+  the workflow therefore uses the stricter 9,000-byte rendered-item gate and reports that policy
+  explicitly rather than claiming tokenizer-exact accounting.
 - Real bot sender/mention JSON remains documentation-backed until manual Lark validation.
 - Group reconciliation search and description behavior need fake-contract tests and later manual
   confirmation.
@@ -1317,6 +1453,8 @@ The feature is complete only when:
 - the group is a normal bot-created group with every configured developer verified;
 - the first eligible message is the research requirement;
 - every stage uses a real managed child thread and ordinary core turn/model/tool persistence;
+- active-child approvals and elicitations reach current root observers and replay after reconnect;
+- resumed stage children rejoin the root's existing agent-control tree;
 - eligible Lark messages are processed sequentially and exactly-once at the workflow level;
 - the design is explicitly approved by digest before implementation;
 - authoritative assistant items are forwarded to Lark and parent presentation;
@@ -1340,11 +1478,32 @@ Primary current-code evidence used for this design:
 - Core thread handles: `codex-rs/core/src/thread_manager.rs:182,725`,
   `codex-rs/core/src/codex_thread.rs:162-421`,
   `codex-rs/core/src/session/mod.rs:746-819`.
-- Managed agent spawn: `codex-rs/core/src/agent/control/spawn.rs:106-415`.
+- Managed agent spawn and current notify-then-immediate-submit ordering:
+  `codex-rs/core/src/agent/control/spawn.rs:106-415`.
+- Root-tree `AgentControl` ownership and fresh-manager helper distinction:
+  `codex-rs/core/src/agent/control.rs:88-104`,
+  `codex-rs/core/src/thread_manager.rs:1072-1077`.
+- Top-level versus tree-preserving managed resume:
+  `codex-rs/core/src/thread_manager.rs:760-788`,
+  `codex-rs/core/src/agent/control/spawn.rs:150,585`.
 - Active-turn ownership/cancellation: `codex-rs/core/src/state/turn.rs:29-83`,
   `codex-rs/core/src/tasks/mod.rs:325-560,834-908`.
 - App-server sole listener and subscriber resolution:
   `codex-rs/app-server/src/request_processors/thread_lifecycle.rs:289-330`.
+- Connection-dependent ordinary attach and zero-connection auto-attach behavior:
+  `codex-rs/app-server/src/request_processors/thread_lifecycle.rs:138-186`,
+  `codex-rs/app-server/src/request_processors/thread_processor.rs:2632-2668`.
+- Child-scoped subscriber snapshots and pending-request replay:
+  `codex-rs/app-server/src/request_processors/thread_lifecycle.rs:319-329,692`,
+  `codex-rs/app-server/src/outgoing_message.rs:120-142`.
+- Existing listener-command serialization pattern:
+  `codex-rs/app-server/src/thread_state.rs:46-64`,
+  `codex-rs/app-server/src/request_processors/thread_lifecycle.rs:275-299,450-507`.
+- Independent client mutation routes:
+  `codex-rs/app-server/src/message_processor.rs:1100-1137,1248-1300`.
+- In-process and socket shutdown order:
+  `codex-rs/app-server/src/in_process.rs:524-531`,
+  `codex-rs/app-server/src/lib.rs:1114-1123`.
 - Subscriberless idle unloading:
   `codex-rs/app-server/src/request_processors/thread_lifecycle.rs:55,344-397`.
 - Authoritative item/terminal projection:
@@ -1395,3 +1554,9 @@ The user approved the following design decisions during incremental review:
 - stage prompt separation, first eligible message as requirement, design digest approval, and
   implementation only after approval;
 - the failure, cancellation, recovery, testing, verification, and evidence-gap policy in this spec.
+
+The implementation-plan review added safety amendments that require confirmation together with
+the plan: two-phase create/listen/observer-subscribe/submit, tree-preserving managed resume,
+immutable-correlation mutation gating, a single durable transition writer with fixed per-stage
+presentation repair, child approval replay, and workflow-manager shutdown before connection,
+listener, or thread teardown.
