@@ -5,7 +5,9 @@ mod events;
 mod interactions;
 mod leases;
 mod nodes;
+mod run_control;
 mod runs;
+mod scheduler;
 #[cfg(test)]
 mod tests;
 
@@ -18,3 +20,4 @@ pub use interactions::WorkflowInteractionPlanOutcome;
 pub use runs::WorkflowRunTransition;
 pub use runs::WorkflowStore;
 pub use runs::WorkflowStoreError;
+pub use scheduler::WorkflowNodeTransition;
