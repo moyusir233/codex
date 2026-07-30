@@ -38,7 +38,7 @@ impl LarkCli {
             None => {}
         }
         args.extend([OsString::from("--format"), OsString::from("json")]);
-        self.run_json(args, &[request.markdown.clone()], cancelled)
+        self.run_json(args, std::slice::from_ref(&request.markdown), cancelled)
     }
 
     pub fn update_document(

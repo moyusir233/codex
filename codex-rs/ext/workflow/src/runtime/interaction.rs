@@ -31,6 +31,8 @@ use crate::integrations::lark::LarkEvent;
 use crate::integrations::lark::MessageBody;
 use crate::integrations::lark::MessageSendRequest;
 use crate::integrations::lark::MessageTarget;
+use crate::integrations::lark::OpenId;
+use crate::integrations::lark::ThreadId;
 
 use super::WorkflowArtifactStore;
 use super::WorkflowArtifactStoreError;
@@ -80,11 +82,11 @@ impl LarkInteractionService {
         let idempotency_key = message_idempotency_key(&run_id_text, &effect_key);
         let effect_request = json!({
             "chat_id": request.chat_id.as_str(),
-            "thread_id": request.thread_id.as_ref().map(|thread| thread.as_str()),
+            "thread_id": request.thread_id.as_ref().map(ThreadId::as_str),
             "allowed_senders": request
                 .allowed_senders
                 .iter()
-                .map(|sender| sender.as_str())
+                .map(OpenId::as_str)
                 .collect::<Vec<_>>(),
             "deadline_ms": request.deadline_ms,
             "correlation_token": &token,
@@ -313,11 +315,11 @@ impl LarkInteractionService {
                 kind: "lark.reply".to_string(),
                 request: json!({
                     "chat_id": request.chat_id.as_str(),
-                    "thread_id": request.thread_id.as_ref().map(|thread| thread.as_str()),
+                    "thread_id": request.thread_id.as_ref().map(ThreadId::as_str),
                     "allowed_senders": request
                         .allowed_senders
                         .iter()
-                        .map(|sender| sender.as_str())
+                        .map(OpenId::as_str)
                         .collect::<Vec<_>>(),
                     "correlation_token": token,
                 }),

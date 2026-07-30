@@ -9,6 +9,7 @@ use super::ChatRecord;
 use super::ChatSearchRequest;
 use super::LarkCli;
 use super::LarkCliError;
+use super::OpenId;
 use super::error::invalid;
 
 #[derive(Deserialize)]
@@ -40,7 +41,7 @@ impl LarkCli {
             let members = request
                 .member_ids
                 .iter()
-                .map(|member| member.as_str())
+                .map(OpenId::as_str)
                 .collect::<Vec<_>>()
                 .join(",");
             push_option(&mut args, "--member-ids", Some(&members));
