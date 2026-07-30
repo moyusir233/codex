@@ -1,0 +1,44 @@
+//! Version-pinned, journal-ready `lark-cli` adapters.
+
+mod chats;
+mod config;
+mod documents;
+mod error;
+mod events;
+mod identity;
+mod messages;
+mod types;
+
+pub use config::LarkCli;
+pub use config::LarkCliConfig;
+pub use config::LarkCliEnvironment;
+pub use error::LarkCliError;
+pub use events::LarkEvent;
+pub use events::LarkEventDecoder;
+pub use events::LarkSubscriberSpec;
+pub use identity::ChatId;
+pub use identity::LarkIdentity;
+pub use identity::MessageId;
+pub use identity::OpenId;
+pub use identity::ThreadId;
+pub use types::ChatCreateRequest;
+pub use types::ChatMatch;
+pub use types::ChatRecord;
+pub use types::ChatSearchRequest;
+pub use types::ContentSensitivity;
+pub use types::DocumentCreateRequest;
+pub use types::DocumentParent;
+pub use types::DocumentRecord;
+pub use types::DocumentSelection;
+pub use types::DocumentUpdateMode;
+pub use types::DocumentUpdateRequest;
+pub use types::DocumentUpdateResult;
+pub use types::LarkCliCapabilities;
+pub use types::LarkCliVersion;
+pub use types::LarkMessage;
+pub use types::MessageBody;
+pub use types::MessagePage;
+pub use types::MessageReplyRequest;
+pub use types::MessageSendRequest;
+pub use types::MessageTarget;
+pub use types::SentMessage;
