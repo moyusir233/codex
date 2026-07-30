@@ -104,6 +104,84 @@ WHERE node_id = ?
         row.map(node_from_row).transpose()
     }
 
+    /// Reads the workflow node bound to a durable Codex thread.
+    pub async fn read_node_by_thread_id(
+        &self,
+        thread_id: &str,
+    ) -> Result<Option<WorkflowNodeRecord>, WorkflowStoreError> {
+        let row = sqlx::query(
+            r#"
+SELECT node_id, run_id, node_key, thread_id, spec_json, status,
+       row_version, created_at_ms, updated_at_ms
+FROM workflow_nodes
+WHERE thread_id = ?
+            "#,
+        )
+        .bind(thread_id)
+        .fetch_optional(self.pool())
+        .await?;
+        row.map(node_from_row).transpose()
+    }
+
+    /// Binds a newly materialized Codex thread to a workflow node exactly once.
+    pub async fn bind_node_thread(
+        &self,
+        node_id: &str,
+        expected_row_version: u64,
+        thread_id: &str,
+        updated_at_ms: i64,
+    ) -> Result<WorkflowNodeRecord, WorkflowStoreError> {
+        let mut tx = self.pool().begin().await?;
+        let expected_row_version = i64::try_from(expected_row_version)
+            .map_err(|_| anyhow::anyhow!("node row version exceeds SQLite range"))?;
+        let result = sqlx::query(
+            r#"
+UPDATE workflow_nodes
+SET thread_id = ?, row_version = row_version + 1, updated_at_ms = ?
+WHERE node_id = ? AND row_version = ? AND thread_id IS NULL
+            "#,
+        )
+        .bind(thread_id)
+        .bind(updated_at_ms)
+        .bind(node_id)
+        .bind(expected_row_version)
+        .execute(&mut *tx)
+        .await;
+        let result = match result {
+            Ok(result) => result,
+            Err(err) if is_unique_violation(&err) => {
+                return Err(WorkflowStoreError::DuplicateNode);
+            }
+            Err(err) => return Err(err.into()),
+        };
+        if result.rows_affected() != 1 {
+            tx.rollback().await?;
+            let existing = self.read_node(node_id).await?;
+            if existing.as_ref().and_then(|node| node.thread_id.as_deref()) == Some(thread_id) {
+                return existing.ok_or(WorkflowStoreError::RunNotFound);
+            }
+            return Err(WorkflowStoreError::StaleWrite);
+        }
+        let run_id: String =
+            sqlx::query_scalar("SELECT run_id FROM workflow_nodes WHERE node_id = ?")
+                .bind(node_id)
+                .fetch_one(&mut *tx)
+                .await?;
+        append_event(
+            &mut tx,
+            &run_id,
+            "node.thread_bound",
+            Some(node_id),
+            &json!({ "thread_id": thread_id }),
+            updated_at_ms,
+        )
+        .await?;
+        tx.commit().await?;
+        self.read_node(node_id)
+            .await?
+            .ok_or(WorkflowStoreError::RunNotFound)
+    }
+
     /// Lists the nodes in stable node-key order.
     pub async fn list_nodes(
         &self,

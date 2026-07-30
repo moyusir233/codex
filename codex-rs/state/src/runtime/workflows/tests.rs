@@ -303,6 +303,91 @@ async fn workflow_graph_dedupes_journals_and_replays_events_in_order() {
 }
 
 #[tokio::test]
+async fn workflow_node_thread_binding_is_unique_idempotent_and_durable() {
+    let home = unique_temp_dir();
+    let runtime = init(&home).await;
+    create_run(runtime.as_ref(), "run-node-binding").await;
+    let store = runtime.workflows();
+    for (node_id, node_key) in [("node-a", "primary"), ("node-b", "secondary")] {
+        store
+            .create_node(
+                "run-node-binding",
+                WorkflowNodeCreate {
+                    node_id: node_id.to_string(),
+                    node_key: node_key.to_string(),
+                    spec: json!({"key": node_key}),
+                    status: WorkflowNodeStatus::Ready,
+                    created_at_ms: 101,
+                },
+                &[],
+            )
+            .await
+            .expect("create node");
+    }
+
+    let bound = store
+        .bind_node_thread("node-a", 1, "thread-primary", 102)
+        .await
+        .expect("bind node thread");
+    assert_eq!(bound.thread_id.as_deref(), Some("thread-primary"));
+    assert_eq!(bound.row_version, 2);
+    assert_eq!(
+        store
+            .read_node_by_thread_id("thread-primary")
+            .await
+            .expect("read thread binding"),
+        Some(bound.clone())
+    );
+    assert_eq!(
+        store
+            .bind_node_thread("node-a", 1, "thread-primary", 103)
+            .await
+            .expect("idempotent thread binding"),
+        bound
+    );
+    assert!(matches!(
+        store
+            .bind_node_thread("node-a", 2, "thread-other", 104)
+            .await
+            .expect_err("node cannot be rebound"),
+        WorkflowStoreError::StaleWrite
+    ));
+    assert!(matches!(
+        store
+            .bind_node_thread("node-b", 1, "thread-primary", 105)
+            .await
+            .expect_err("thread cannot bind to two nodes"),
+        WorkflowStoreError::DuplicateNode
+    ));
+
+    let events = store
+        .events_after("run-node-binding", 0, 100)
+        .await
+        .expect("read binding events");
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.kind == "node.thread_bound")
+            .count(),
+        1
+    );
+
+    runtime.close().await;
+    let reopened = init(&home).await;
+    assert_eq!(
+        reopened
+            .workflows()
+            .read_node_by_thread_id("thread-primary")
+            .await
+            .expect("read reopened binding")
+            .and_then(|node| node.thread_id),
+        Some("thread-primary".to_string())
+    );
+    reopened.close().await;
+    let _ = tokio::fs::remove_dir_all(home).await;
+}
+
+#[tokio::test]
 async fn workflow_corruption_routes_only_workflow_database_to_backup() {
     let home = unique_temp_dir();
     let runtime = init(&home).await;
