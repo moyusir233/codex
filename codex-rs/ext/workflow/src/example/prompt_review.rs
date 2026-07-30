@@ -57,13 +57,17 @@ impl Workflow for PromptReviewWorkflow {
         })?;
         match state {
             PromptReviewState::Preparing { args } => {
-                let prepared = capability.prepare(ctx.run_id(), &args).await?;
+                let prepared = capability
+                    .prepare(ctx.run_id(), &args, ctx.cancellation())
+                    .await?;
                 Ok(WorkflowTransition::Continue {
                     state: PromptReviewState::Reviewing { args, prepared },
                 })
             }
             PromptReviewState::Reviewing { args, prepared } => {
-                let review = capability.review(ctx.run_id(), &args, &prepared).await?;
+                let review = capability
+                    .review(ctx.run_id(), &args, &prepared, ctx.cancellation())
+                    .await?;
                 Ok(WorkflowTransition::Continue {
                     state: PromptReviewState::AwaitingHuman {
                         args,
@@ -80,7 +84,7 @@ impl Workflow for PromptReviewWorkflow {
                 interaction_id: _,
             } => {
                 match capability
-                    .request_human(ctx.run_id(), &args, &review)
+                    .request_human(ctx.run_id(), &args, &review, ctx.cancellation())
                     .await?
                 {
                     HumanInteractionOutcome::Waiting { interaction_id } => {
@@ -123,7 +127,14 @@ impl Workflow for PromptReviewWorkflow {
                 reply_artifact_id,
             } => {
                 let output = capability
-                    .follow_up_and_save(ctx.run_id(), &args, &prepared, &review, reply_artifact_id)
+                    .follow_up_and_save(
+                        ctx.run_id(),
+                        &args,
+                        &prepared,
+                        &review,
+                        reply_artifact_id,
+                        ctx.cancellation(),
+                    )
                     .await?;
                 Ok(WorkflowTransition::Complete { output })
             }

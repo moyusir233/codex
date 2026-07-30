@@ -70,7 +70,6 @@ impl WorkflowDriver {
         cancellation_signals: CancellationSignals,
         fornax: Option<Arc<FornaxWorkflowClient>>,
         lark: Option<Arc<super::LarkInteractionService>>,
-        prompt_review: Option<Arc<dyn crate::PromptReviewCapability>>,
     ) -> Self {
         Self {
             store,
@@ -80,7 +79,7 @@ impl WorkflowDriver {
             cancellation_signals,
             fornax,
             lark,
-            prompt_review,
+            prompt_review: None,
         }
     }
 

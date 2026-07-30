@@ -33,6 +33,12 @@ pub enum WorkflowArtifactStoreError {
     /// The artifact destination already exists.
     #[error("artifact path already exists")]
     AlreadyExists,
+    /// The artifact manifest was absent or belonged to a different run.
+    #[error("artifact was not found")]
+    NotFound,
+    /// Stored bytes no longer match the immutable manifest.
+    #[error("artifact bytes do not match their manifest")]
+    Corrupt,
     /// Local filesystem operation failed.
     #[error(transparent)]
     Io(#[from] std::io::Error),
@@ -86,6 +92,34 @@ impl WorkflowArtifactStore {
     /// Returns the local artifact root.
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// Reads and verifies one immutable artifact owned by the supplied run.
+    pub async fn read(
+        &self,
+        run_id: WorkflowRunId,
+        artifact_id: ArtifactId,
+    ) -> Result<Vec<u8>, WorkflowArtifactStoreError> {
+        let manifest = self
+            .state
+            .read_artifact(&artifact_id.to_string())
+            .await?
+            .filter(|manifest| manifest.run_id == run_id.to_string())
+            .ok_or(WorkflowArtifactStoreError::NotFound)?;
+        let relative = validate_relative_path(Path::new(&manifest.relative_path))?;
+        let path = self.root.join(run_id.to_string()).join(relative);
+        let metadata = tokio::fs::symlink_metadata(&path).await?;
+        if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
+            return Err(WorkflowArtifactStoreError::Corrupt);
+        }
+        let bytes = tokio::fs::read(path).await?;
+        let byte_count =
+            u64::try_from(bytes.len()).map_err(|_| WorkflowArtifactStoreError::Corrupt)?;
+        let sha256 = format!("{:x}", Sha256::digest(&bytes));
+        if byte_count != manifest.byte_count || sha256 != manifest.sha256 {
+            return Err(WorkflowArtifactStoreError::Corrupt);
+        }
+        Ok(bytes)
     }
 
     /// Atomically installs bytes and records their immutable manifest.

@@ -97,7 +97,7 @@ impl WorkflowRecovery {
             store.release_lease(&lease, now_ms).await?;
             match outcome? {
                 ReconcileOutcome::ReadyToDrive => {
-                    let driver = WorkflowDriver::new_with_signals(
+                    let mut driver = WorkflowDriver::new_with_signals(
                         store.clone(),
                         Arc::clone(&self.registry),
                         self.owner.clone(),
@@ -105,8 +105,10 @@ impl WorkflowRecovery {
                         self.service.cancellation_signals(),
                         self.fornax.as_ref().map(Arc::clone),
                         self.lark.as_ref().map(Arc::clone),
-                        self.prompt_review.as_ref().map(Arc::clone),
                     );
+                    if let Some(capability) = self.prompt_review.as_ref().map(Arc::clone) {
+                        driver = driver.with_prompt_review_capability(capability);
+                    }
                     if !matches!(
                         driver.step_once(run_id, now_ms).await?,
                         DriveOutcome::Busy | DriveOutcome::NeedsOperator

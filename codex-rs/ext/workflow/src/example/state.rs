@@ -12,7 +12,10 @@ use crate::WorkflowState;
 pub struct PromptReviewPrepared {
     pub prompt_id: String,
     pub prompt_version: Option<String>,
+    pub prompt_draft_artifact_id: ArtifactId,
     pub rendered_prompt_artifact_id: ArtifactId,
+    pub span_handle_id: String,
+    pub trace_context_id: String,
     pub trace_id: String,
     pub root_span_id: String,
 }
@@ -20,8 +23,11 @@ pub struct PromptReviewPrepared {
 /// Durable node/session correlations produced by chain and fan-out/fan-in.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PromptReviewReview {
+    pub planner_node_id: String,
     pub planner_thread_id: String,
+    pub reviewer_node_ids: Vec<String>,
     pub reviewer_thread_ids: Vec<String>,
+    pub synthesizer_node_id: String,
     pub synthesizer_thread_id: String,
     pub synthesis_artifact_id: ArtifactId,
     pub lark_document_id: Option<String>,
@@ -61,8 +67,11 @@ impl WorkflowState for PromptReviewState {
 pub struct PromptReviewOutput {
     pub prompt_id: String,
     pub prompt_version: Option<String>,
+    pub planner_node_id: String,
     pub planner_thread_id: String,
+    pub reviewer_node_ids: Vec<String>,
     pub reviewer_thread_ids: Vec<String>,
+    pub synthesizer_node_id: String,
     pub synthesizer_thread_id: String,
     pub trace_id: String,
     pub root_span_id: String,

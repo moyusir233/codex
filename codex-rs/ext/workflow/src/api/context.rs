@@ -35,6 +35,12 @@ impl WorkflowCancellation {
         self.state.requested.load(Ordering::Acquire)
     }
 
+    /// Returns the shared flag accepted by bounded synchronous capability
+    /// adapters.
+    pub fn flag(&self) -> &AtomicBool {
+        &self.state.requested
+    }
+
     /// Waits until cancellation is requested.
     ///
     /// Process-backed effects should race this future with child completion and

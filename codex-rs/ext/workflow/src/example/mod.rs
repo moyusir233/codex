@@ -35,6 +35,7 @@ pub trait PromptReviewCapability: Send + Sync {
         &'a self,
         run_id: WorkflowRunId,
         args: &'a PromptReviewArguments,
+        cancellation: &'a crate::WorkflowCancellation,
     ) -> PromptReviewCapabilityFuture<'a, PromptReviewPrepared>;
 
     fn review<'a>(
@@ -42,6 +43,7 @@ pub trait PromptReviewCapability: Send + Sync {
         run_id: WorkflowRunId,
         args: &'a PromptReviewArguments,
         prepared: &'a PromptReviewPrepared,
+        cancellation: &'a crate::WorkflowCancellation,
     ) -> PromptReviewCapabilityFuture<'a, PromptReviewReview>;
 
     fn request_human<'a>(
@@ -49,6 +51,7 @@ pub trait PromptReviewCapability: Send + Sync {
         run_id: WorkflowRunId,
         args: &'a PromptReviewArguments,
         review: &'a PromptReviewReview,
+        cancellation: &'a crate::WorkflowCancellation,
     ) -> PromptReviewCapabilityFuture<'a, HumanInteractionOutcome>;
 
     fn follow_up_and_save<'a>(
@@ -58,6 +61,7 @@ pub trait PromptReviewCapability: Send + Sync {
         prepared: &'a PromptReviewPrepared,
         review: &'a PromptReviewReview,
         reply_artifact_id: crate::ArtifactId,
+        cancellation: &'a crate::WorkflowCancellation,
     ) -> PromptReviewCapabilityFuture<'a, PromptReviewOutput>;
 }
 

@@ -1,3 +1,5 @@
+#![allow(clippy::expect_used)]
+
 mod support;
 
 use std::ffi::OsString;
@@ -59,6 +61,7 @@ impl PromptReviewCapability for FakePromptReview {
         &'a self,
         _run_id: WorkflowRunId,
         args: &'a PromptReviewArguments,
+        _cancellation: &'a codex_workflow_extension::WorkflowCancellation,
     ) -> PromptReviewCapabilityFuture<'a, PromptReviewPrepared> {
         self.record("prepare");
         Box::pin(async move {
@@ -66,7 +69,10 @@ impl PromptReviewCapability for FakePromptReview {
             Ok(PromptReviewPrepared {
                 prompt_id: "prompt-01".to_string(),
                 prompt_version: Some("7".to_string()),
+                prompt_draft_artifact_id: ArtifactId::new(),
                 rendered_prompt_artifact_id: ArtifactId::new(),
+                span_handle_id: uuid::Uuid::now_v7().to_string(),
+                trace_context_id: uuid::Uuid::now_v7().to_string(),
                 trace_id: "trace-01".to_string(),
                 root_span_id: "span-root".to_string(),
             })
@@ -78,16 +84,22 @@ impl PromptReviewCapability for FakePromptReview {
         _run_id: WorkflowRunId,
         _args: &'a PromptReviewArguments,
         _prepared: &'a PromptReviewPrepared,
+        _cancellation: &'a codex_workflow_extension::WorkflowCancellation,
     ) -> PromptReviewCapabilityFuture<'a, PromptReviewReview> {
         self.record("review");
         Box::pin(async {
             Ok(PromptReviewReview {
+                planner_node_id: codex_workflow_extension::NodeId::new().to_string(),
                 planner_thread_id: "planner-thread".to_string(),
+                reviewer_node_ids: (0..3)
+                    .map(|_| codex_workflow_extension::NodeId::new().to_string())
+                    .collect(),
                 reviewer_thread_ids: vec![
                     "reviewer-a".to_string(),
                     "reviewer-b".to_string(),
                     "reviewer-c".to_string(),
                 ],
+                synthesizer_node_id: codex_workflow_extension::NodeId::new().to_string(),
                 synthesizer_thread_id: "synth-thread".to_string(),
                 synthesis_artifact_id: ArtifactId::new(),
                 lark_document_id: Some("doc-01".to_string()),
@@ -100,6 +112,7 @@ impl PromptReviewCapability for FakePromptReview {
         _run_id: WorkflowRunId,
         _args: &'a PromptReviewArguments,
         _review: &'a PromptReviewReview,
+        _cancellation: &'a codex_workflow_extension::WorkflowCancellation,
     ) -> PromptReviewCapabilityFuture<'a, HumanInteractionOutcome> {
         self.record("request_human");
         let reply = self.reply.clone();
@@ -113,14 +126,18 @@ impl PromptReviewCapability for FakePromptReview {
         prepared: &'a PromptReviewPrepared,
         review: &'a PromptReviewReview,
         reply_artifact_id: ArtifactId,
+        _cancellation: &'a codex_workflow_extension::WorkflowCancellation,
     ) -> PromptReviewCapabilityFuture<'a, PromptReviewOutput> {
         self.record("follow_up_and_save");
         Box::pin(async move {
             Ok(PromptReviewOutput {
                 prompt_id: prepared.prompt_id.clone(),
                 prompt_version: prepared.prompt_version.clone(),
+                planner_node_id: review.planner_node_id.clone(),
                 planner_thread_id: review.planner_thread_id.clone(),
+                reviewer_node_ids: review.reviewer_node_ids.clone(),
                 reviewer_thread_ids: review.reviewer_thread_ids.clone(),
+                synthesizer_node_id: review.synthesizer_node_id.clone(),
                 synthesizer_thread_id: review.synthesizer_thread_id.clone(),
                 trace_id: prepared.trace_id.clone(),
                 root_span_id: prepared.root_span_id.clone(),
