@@ -51,6 +51,8 @@ use crate::integrations::fornax::render_normal_prompt;
 use crate::integrations::fornax::safe_tags;
 use crate::integrations::lark::ChatId;
 use crate::integrations::lark::ContentSensitivity;
+use crate::integrations::lark::DocumentCreateRequest;
+use crate::integrations::lark::LarkIdentity;
 use crate::integrations::lark::OpenId;
 use crate::runtime::LarkInteractionService;
 
@@ -314,6 +316,117 @@ impl LivePromptReviewCapability {
             }
         }
     }
+
+    async fn create_review_document(
+        &self,
+        run_id: WorkflowRunId,
+        synthesis: &str,
+        cancellation: &WorkflowCancellation,
+    ) -> Result<String, WorkflowError> {
+        let effect_key = "lark.review.document.create";
+        let title = format!("Codex prompt review {run_id}");
+        let planned = self
+            .service
+            .store()
+            .plan_effect(WorkflowEffectPlan {
+                run_id: run_id.to_string(),
+                effect_key: effect_key.to_string(),
+                kind: effect_key.to_string(),
+                request: json!({
+                    "title": &title,
+                    "markdown_sha256": format!("{:x}", Sha256::digest(synthesis.as_bytes())),
+                    "classification": "non_sensitive",
+                }),
+                created_at_ms: now_ms()?,
+            })
+            .await
+            .map_err(definition_error)?;
+        let record = match planned {
+            WorkflowEffectPlanOutcome::Planned(record)
+            | WorkflowEffectPlanOutcome::Existing(record) => record,
+        };
+        if record.state == WorkflowEffectState::Applied {
+            return record
+                .response
+                .as_ref()
+                .and_then(|response| response.get("doc_id"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .ok_or_else(|| {
+                    WorkflowError::definition("applied Lark document effect has no document ID")
+                });
+        }
+        if record.state != WorkflowEffectState::Planned {
+            return Err(WorkflowError::definition(
+                "Lark document create is ambiguous and needs operator reconciliation",
+            ));
+        }
+        if !self
+            .service
+            .store()
+            .update_effect(WorkflowEffectUpdate {
+                run_id: run_id.to_string(),
+                effect_key: effect_key.to_string(),
+                expected_state: WorkflowEffectState::Planned,
+                state: WorkflowEffectState::Dispatched,
+                response: None,
+                error_code: None,
+                updated_at_ms: now_ms()?,
+            })
+            .await
+            .map_err(definition_error)?
+        {
+            return Err(WorkflowError::definition(
+                "Lark document effect changed concurrently",
+            ));
+        }
+        match self.lark.cli().create_document(
+            &DocumentCreateRequest {
+                identity: LarkIdentity::Bot,
+                title: Some(title),
+                markdown: synthesis.to_string(),
+                parent: None,
+                sensitivity: ContentSensitivity::NonSensitive,
+            },
+            cancellation.flag(),
+        ) {
+            Ok(document) => {
+                self.service
+                    .store()
+                    .update_effect(WorkflowEffectUpdate {
+                        run_id: run_id.to_string(),
+                        effect_key: effect_key.to_string(),
+                        expected_state: WorkflowEffectState::Dispatched,
+                        state: WorkflowEffectState::Applied,
+                        response: Some(json!({
+                            "doc_id": document.doc_id,
+                            "doc_url": document.doc_url,
+                        })),
+                        error_code: None,
+                        updated_at_ms: now_ms()?,
+                    })
+                    .await
+                    .map_err(definition_error)?;
+                Ok(document.doc_id)
+            }
+            Err(error) => {
+                self.service
+                    .store()
+                    .update_effect(WorkflowEffectUpdate {
+                        run_id: run_id.to_string(),
+                        effect_key: effect_key.to_string(),
+                        expected_state: WorkflowEffectState::Dispatched,
+                        state: WorkflowEffectState::Ambiguous,
+                        response: None,
+                        error_code: Some("lark_document_create_ambiguous".to_string()),
+                        updated_at_ms: now_ms()?,
+                    })
+                    .await
+                    .map_err(definition_error)?;
+                Err(definition_error(error))
+            }
+        }
+    }
 }
 
 impl PromptReviewCapability for LivePromptReviewCapability {
@@ -406,7 +519,7 @@ impl PromptReviewCapability for LivePromptReviewCapability {
         run_id: WorkflowRunId,
         args: &'a PromptReviewArguments,
         prepared: &'a PromptReviewPrepared,
-        _cancellation: &'a WorkflowCancellation,
+        cancellation: &'a WorkflowCancellation,
     ) -> PromptReviewCapabilityFuture<'a, PromptReviewReview> {
         Box::pin(async move {
             let rendered = self
@@ -497,6 +610,9 @@ impl PromptReviewCapability for LivePromptReviewCapability {
                     synthesis.as_bytes(),
                 )
                 .await?;
+            let lark_document_id = self
+                .create_review_document(run_id, &synthesis, cancellation)
+                .await?;
             let fornax = self.fornax(run_id);
             let writer = fornax.trace_writer().map_err(definition_error)?;
             let correlation = correlation(prepared)?;
@@ -527,7 +643,7 @@ impl PromptReviewCapability for LivePromptReviewCapability {
                 synthesizer_node_id: synthesizer_node_id.to_string(),
                 synthesizer_thread_id,
                 synthesis_artifact_id,
-                lark_document_id: None,
+                lark_document_id: Some(lark_document_id),
             })
         })
     }
