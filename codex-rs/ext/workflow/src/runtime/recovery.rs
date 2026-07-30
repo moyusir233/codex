@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use codex_state::WorkflowEffectState;
 use codex_state::WorkflowEffectUpdate;
@@ -16,6 +17,8 @@ use crate::WorkflowNodeBinding;
 use crate::WorkflowRegistry;
 use crate::WorkflowRunId;
 use crate::WorkflowVersion;
+use crate::WakeCondition;
+use crate::HumanInteractionOutcome;
 use crate::integrations::fornax::FornaxWorkflowClient;
 
 use super::DriveOutcome;
@@ -41,6 +44,7 @@ pub struct WorkflowRecovery {
     owner: String,
     lease_duration_ms: i64,
     fornax: Option<Arc<FornaxWorkflowClient>>,
+    lark: Option<Arc<super::LarkInteractionService>>,
 }
 
 impl WorkflowRecovery {
@@ -56,11 +60,17 @@ impl WorkflowRecovery {
             owner: owner.into(),
             lease_duration_ms: lease_duration_ms.max(1),
             fornax: None,
+            lark: None,
         }
     }
 
     pub fn with_fornax_client(mut self, client: Arc<FornaxWorkflowClient>) -> Self {
         self.fornax = Some(client);
+        self
+    }
+
+    pub fn with_lark_service(mut self, service: Arc<super::LarkInteractionService>) -> Self {
+        self.lark = Some(service);
         self
     }
 
@@ -91,6 +101,7 @@ impl WorkflowRecovery {
                         self.lease_duration_ms,
                         self.service.cancellation_signals(),
                         self.fornax.as_ref().map(Arc::clone),
+                        self.lark.as_ref().map(Arc::clone),
                     );
                     if !matches!(
                         driver.step_once(run_id, now_ms).await?,
@@ -111,6 +122,24 @@ impl WorkflowRecovery {
         now_ms: i64,
         report: &mut RecoveryReport,
     ) -> Result<ReconcileOutcome, WorkflowRecoveryError> {
+        if let Some(lark) = &self.lark
+            && let Some(wake) = &run.wake
+            && let Ok(WakeCondition::HumanInteraction(interaction_id)) =
+                serde_json::from_value::<WakeCondition>(wake.clone())
+            && self
+                .service
+                .store()
+                .read_lark_interaction(&interaction_id.to_string())
+                .await?
+                .is_some()
+        {
+            let outcome = lark
+                .reconcile_waiting(interaction_id, now_ms, &AtomicBool::new(false))
+                .await?;
+            if !matches!(outcome, HumanInteractionOutcome::Waiting { .. }) {
+                return Ok(ReconcileOutcome::ReadyToDrive);
+            }
+        }
         let name = WorkflowName::new(run.definition_name.clone())?;
         let version = WorkflowVersion::parse(&run.definition_version)?;
         if self.registry.resolve(&name, Some(&version)).is_err() {
@@ -423,6 +452,8 @@ pub enum WorkflowRecoveryError {
     Host(#[from] super::NodeHostError),
     #[error(transparent)]
     Serialization(#[from] serde_json::Error),
+    #[error(transparent)]
+    Lark(#[from] super::LarkInteractionError),
     #[error("workflow attempt input hash is invalid")]
     InvalidHash,
     #[error("workflow thread id is invalid: {0}")]

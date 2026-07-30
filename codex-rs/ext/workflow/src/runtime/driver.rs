@@ -39,6 +39,7 @@ pub struct WorkflowDriver {
     lease_duration_ms: i64,
     cancellation_signals: CancellationSignals,
     fornax: Option<Arc<FornaxWorkflowClient>>,
+    lark: Option<Arc<super::LarkInteractionService>>,
 }
 
 impl WorkflowDriver {
@@ -55,6 +56,7 @@ impl WorkflowDriver {
             lease_duration_ms: lease_duration_ms.max(1),
             cancellation_signals: CancellationSignals::default(),
             fornax: None,
+            lark: None,
         }
     }
 
@@ -65,6 +67,7 @@ impl WorkflowDriver {
         lease_duration_ms: i64,
         cancellation_signals: CancellationSignals,
         fornax: Option<Arc<FornaxWorkflowClient>>,
+        lark: Option<Arc<super::LarkInteractionService>>,
     ) -> Self {
         Self {
             store,
@@ -73,11 +76,17 @@ impl WorkflowDriver {
             lease_duration_ms: lease_duration_ms.max(1),
             cancellation_signals,
             fornax,
+            lark,
         }
     }
 
     pub fn with_fornax_client(mut self, client: Arc<FornaxWorkflowClient>) -> Self {
         self.fornax = Some(client);
+        self
+    }
+
+    pub fn with_lark_service(mut self, service: Arc<super::LarkInteractionService>) -> Self {
+        self.lark = Some(service);
         self
     }
 
@@ -216,6 +225,7 @@ impl WorkflowDriver {
             run_id,
             cancellation,
             self.fornax.as_ref().map(Arc::clone),
+            self.lark.as_ref().map(Arc::clone),
         );
         let transition = definition
             .step(WorkflowContext::new(&parts), checkpoint)

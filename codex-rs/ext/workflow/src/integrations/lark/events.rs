@@ -13,6 +13,8 @@ use super::OpenId;
 pub struct LarkSubscriberSpec {
     pub executable: std::path::PathBuf,
     pub args: Vec<OsString>,
+    pub(crate) cwd: std::path::PathBuf,
+    pub(crate) environment: std::collections::BTreeMap<OsString, OsString>,
 }
 
 impl LarkSubscriberSpec {
@@ -28,6 +30,8 @@ impl LarkSubscriberSpec {
                 OsString::from("im.message.receive_v1"),
                 OsString::from("--quiet"),
             ],
+            cwd: cli.config.cwd.clone(),
+            environment: cli.config.environment.values.clone(),
         }
     }
 }
@@ -90,6 +94,10 @@ impl LarkEventDecoder {
             message_type: nonempty(raw.event.message.message_type, "message type")?,
             text: content.text,
         })
+    }
+
+    pub(crate) fn maximum_line_bytes(&self) -> usize {
+        self.maximum_line_bytes
     }
 }
 

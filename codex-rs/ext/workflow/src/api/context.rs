@@ -6,6 +6,7 @@ use tokio::sync::Notify;
 
 use crate::api::WorkflowRunId;
 use crate::integrations::fornax::FornaxWorkflowClient;
+use crate::runtime::LarkInteractionService;
 
 /// Cooperative cancellation view exposed to workflow reducer code.
 #[derive(Clone)]
@@ -82,12 +83,18 @@ impl<'a> WorkflowContext<'a> {
     pub fn fornax(&self) -> Option<&FornaxWorkflowClient> {
         self.parts.fornax.as_deref()
     }
+
+    /// Returns the durable Lark interaction service configured by the host.
+    pub fn lark(&self) -> Option<&LarkInteractionService> {
+        self.parts.lark.as_deref()
+    }
 }
 
 pub(crate) struct WorkflowContextParts {
     run_id: WorkflowRunId,
     cancellation: WorkflowCancellation,
     fornax: Option<Arc<FornaxWorkflowClient>>,
+    lark: Option<Arc<LarkInteractionService>>,
 }
 
 impl WorkflowContextParts {
@@ -95,11 +102,13 @@ impl WorkflowContextParts {
         run_id: WorkflowRunId,
         cancellation: WorkflowCancellation,
         fornax: Option<Arc<FornaxWorkflowClient>>,
+        lark: Option<Arc<LarkInteractionService>>,
     ) -> Self {
         Self {
             run_id,
             cancellation,
             fornax,
+            lark,
         }
     }
 }
