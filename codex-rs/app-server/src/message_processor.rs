@@ -19,6 +19,8 @@ use crate::outgoing_message::ConnectionRequestId;
 use crate::outgoing_message::OutgoingMessageSender;
 use crate::outgoing_message::RequestContext;
 use crate::request_processors::AccountRequestProcessor;
+use crate::request_processors::AppServerWorkflowNodeHost;
+use crate::request_processors::AppServerWorkflowNodeHostArgs;
 use crate::request_processors::AppsRequestProcessor;
 use crate::request_processors::CatalogRequestProcessor;
 use crate::request_processors::CommandExecRequestProcessor;
@@ -123,6 +125,7 @@ pub(crate) struct MessageProcessor {
     thread_goal_processor: ThreadGoalRequestProcessor,
     thread_processor: ThreadRequestProcessor,
     turn_processor: TurnRequestProcessor,
+    workflow_service: Option<Arc<codex_workflow_extension::WorkflowService>>,
     windows_sandbox_processor: WindowsSandboxRequestProcessor,
     request_serialization_queues: RequestSerializationQueues,
 }
@@ -258,6 +261,15 @@ impl MessageProcessor {
             ),
         );
         let goal_service = Arc::new(GoalService::new());
+        let workflow_node_host_slot = codex_workflow_extension::WorkflowNodeHostSlot::new();
+        let workflow_service = state_db.as_ref().map(|state| {
+            Arc::new(codex_workflow_extension::WorkflowService::new(
+                state.workflows().clone(),
+                workflow_node_host_slot.clone(),
+            ))
+        });
+        let workflow_service_for_extensions = workflow_service.clone();
+        let session_source_for_workflow = session_source.clone();
         let thread_manager = Arc::new_cyclic(|thread_manager| {
             ThreadManager::new(
                 config.as_ref(),
@@ -276,6 +288,7 @@ impl MessageProcessor {
                         analytics_events_client: analytics_events_client.clone(),
                         thread_manager: thread_manager.clone(),
                         goal_service: Arc::clone(&goal_service),
+                        workflow_service: workflow_service_for_extensions.clone(),
                         environment_manager: Arc::clone(&environment_manager_for_extensions),
                         executor_skill_provider: Arc::clone(&executor_skill_provider),
                         thread_store: Arc::clone(&thread_store),
@@ -310,6 +323,27 @@ impl MessageProcessor {
         let thread_watch_manager =
             crate::thread_status::ThreadWatchManager::new_with_outgoing(outgoing.clone());
         let thread_list_state_permit = Arc::new(Semaphore::new(/*permits*/ 1));
+        if let Some(workflow_service) = workflow_service.as_ref()
+            && let Err(error) =
+                workflow_service
+                    .node_host_slot()
+                    .bind(Arc::new(AppServerWorkflowNodeHost::new(
+                        AppServerWorkflowNodeHostArgs {
+                            thread_manager: Arc::clone(&thread_manager),
+                            thread_store: Arc::clone(&thread_store),
+                            config: Arc::clone(&config),
+                            session_source: session_source_for_workflow,
+                            outgoing: Arc::clone(&outgoing),
+                            pending_thread_unloads: Arc::clone(&pending_thread_unloads),
+                            thread_state_manager: thread_state_manager.clone(),
+                            thread_watch_manager: thread_watch_manager.clone(),
+                            thread_list_state_permit: Arc::clone(&thread_list_state_permit),
+                            skills_watcher: Arc::clone(&skills_watcher),
+                        },
+                    )))
+        {
+            tracing::error!(%error, "failed to bind workflow node host");
+        }
         let workspace_settings_cache =
             Arc::new(workspace_settings::WorkspaceSettingsCache::default());
         let app_list_shutdown_token = CancellationToken::new();
@@ -501,6 +535,7 @@ impl MessageProcessor {
             thread_goal_processor,
             thread_processor,
             turn_processor,
+            workflow_service,
             windows_sandbox_processor,
             request_serialization_queues,
         }
@@ -643,6 +678,16 @@ impl MessageProcessor {
 
     pub(crate) fn thread_created_receiver(&self) -> broadcast::Receiver<ThreadId> {
         self.thread_processor.thread_created_receiver()
+    }
+
+    #[allow(
+        dead_code,
+        reason = "consumed by the workflow request processor in Milestone 6"
+    )]
+    pub(crate) fn workflow_service(
+        &self,
+    ) -> Option<Arc<codex_workflow_extension::WorkflowService>> {
+        self.workflow_service.clone()
     }
 
     pub(crate) async fn send_initialize_notifications_to_connection(

@@ -35,6 +35,7 @@ pub(crate) struct ThreadExtensionDependencies {
     pub(crate) analytics_events_client: AnalyticsEventsClient,
     pub(crate) thread_manager: Weak<ThreadManager>,
     pub(crate) goal_service: Arc<GoalService>,
+    pub(crate) workflow_service: Option<Arc<codex_workflow_extension::WorkflowService>>,
     pub(crate) environment_manager: Arc<EnvironmentManager>,
     pub(crate) executor_skill_provider: Arc<dyn codex_skills_extension::SkillProvider>,
     /// Process-scoped persistence backend for extensions that need stored thread history.
@@ -55,11 +56,22 @@ where
         analytics_events_client,
         thread_manager,
         goal_service,
+        workflow_service,
         environment_manager,
         executor_skill_provider,
-        thread_store: _thread_store,
+        thread_store,
     } = dependencies;
     let mut builder = ExtensionRegistryBuilder::<Config>::with_event_sink(event_sink);
+    if let (Some(state_db), Some(workflow_service)) = (state_db.as_ref(), workflow_service) {
+        codex_workflow_extension::install_with_backend(
+            &mut builder,
+            Arc::clone(state_db),
+            workflow_service,
+            thread_manager.clone(),
+            Arc::clone(&thread_store),
+            |config: &Config| config.features.enabled(codex_features::Feature::Workflows),
+        );
+    }
     if let Some(state_db) = state_db {
         codex_goal_extension::install_with_backend(
             &mut builder,
