@@ -5,6 +5,7 @@ mod log;
 mod memories;
 mod thread_goal;
 mod thread_metadata;
+mod workflow;
 
 pub use agent_job::AgentJob;
 pub use agent_job::AgentJobCreateParams;
@@ -35,6 +36,20 @@ pub use thread_metadata::ThreadMetadata;
 pub use thread_metadata::ThreadMetadataBuilder;
 pub use thread_metadata::ThreadRelationFilter;
 pub use thread_metadata::ThreadsPage;
+pub use workflow::WorkflowArtifactClassification;
+pub use workflow::WorkflowArtifactRecord;
+pub use workflow::WorkflowEffectRecord;
+pub use workflow::WorkflowEffectState;
+pub use workflow::WorkflowEventRecord;
+pub use workflow::WorkflowInteractionRecord;
+pub use workflow::WorkflowInteractionState;
+pub use workflow::WorkflowLease;
+pub use workflow::WorkflowNodeCreate;
+pub use workflow::WorkflowNodeRecord;
+pub use workflow::WorkflowNodeStatus;
+pub use workflow::WorkflowRunCreate;
+pub use workflow::WorkflowRunRecord;
+pub use workflow::WorkflowRunStatus;
 
 pub(crate) use agent_job::AgentJobItemRow;
 pub(crate) use agent_job::AgentJobRow;
