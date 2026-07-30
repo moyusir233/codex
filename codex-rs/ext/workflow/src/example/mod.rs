@@ -1,6 +1,7 @@
 //! Registered reference workflows and their narrow host capability contracts.
 
 mod args;
+mod live;
 mod prompt_review;
 mod state;
 
@@ -8,6 +9,9 @@ use std::future::Future;
 use std::pin::Pin;
 
 pub use args::PromptReviewArguments;
+pub use live::LivePromptReviewCapability;
+pub use live::PromptReviewRuntimeConfig;
+pub use live::PromptReviewRuntimeDependencies;
 pub use prompt_review::PromptReviewWorkflow;
 pub use state::PromptReviewOutput;
 pub use state::PromptReviewPrepared;
