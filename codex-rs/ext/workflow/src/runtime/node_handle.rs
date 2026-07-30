@@ -69,6 +69,7 @@ impl NodeHandle {
         effect: EffectKey,
         input: NodeInput,
     ) -> Result<SubmittedTurn, NodeError> {
+        let input = super::skill_policy::apply_initial_skill_invocations(input, &self.spec);
         self.submit(effect, input).await
     }
 

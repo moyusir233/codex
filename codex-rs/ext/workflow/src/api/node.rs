@@ -111,7 +111,20 @@ pub struct SkillSelector {
     pub initial_invocation: SkillInitialInvocation,
 }
 
+/// Exact persisted skill selection produced by materialization-time resolution.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ResolvedSkillSelection {
+    pub authority: SkillAuthoritySelector,
+    pub package: SkillPackageSelector,
+    pub name: String,
+    pub invocation_path: String,
+    pub initial_invocation: SkillInitialInvocation,
+}
+
 /// Per-node skill visibility policy.
+///
+/// This selects capabilities exposed to the node. It is not filesystem or
+/// process sandbox enforcement.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "kind", content = "skills")]
 pub enum SkillPolicy {
@@ -217,6 +230,8 @@ pub struct NodeSpec {
     collaboration_mode: NodeCollaborationMode,
     skills: SkillPolicy,
     #[serde(default)]
+    resolved_skills: Vec<ResolvedSkillSelection>,
+    #[serde(default)]
     retry: RetryPolicy,
     #[serde(default)]
     output_classification: NodeOutputClassification,
@@ -237,6 +252,7 @@ impl NodeSpec {
                 approvals: NodeApprovals::WorkflowDefault,
                 collaboration_mode: NodeCollaborationMode::WorkflowDefault,
                 skills: SkillPolicy::Inherit,
+                resolved_skills: Vec::new(),
                 retry: RetryPolicy::default(),
                 output_classification: NodeOutputClassification::Internal,
                 failure_policy: FailurePolicy::FailFast,
@@ -274,6 +290,16 @@ impl NodeSpec {
 
     pub fn skills(&self) -> &SkillPolicy {
         &self.skills
+    }
+
+    pub fn resolved_skills(&self) -> &[ResolvedSkillSelection] {
+        &self.resolved_skills
+    }
+
+    /// Stores exact catalog resolution in the durable node snapshot.
+    pub fn with_resolved_skills(mut self, resolved: Vec<ResolvedSkillSelection>) -> Self {
+        self.resolved_skills = resolved;
+        self
     }
 
     pub fn retry(&self) -> &RetryPolicy {
@@ -351,14 +377,24 @@ impl NodeSpecBuilder {
         {
             return Err(NodeSpecError::EmptyModel);
         }
-        if let SkillPolicy::AllowOnly(skills) = &self.spec.skills
-            && skills.iter().any(|skill| {
+        if let SkillPolicy::AllowOnly(skills) = &self.spec.skills {
+            if skills.iter().any(|skill| {
                 skill.authority.kind.trim().is_empty()
                     || skill.authority.id.trim().is_empty()
                     || skill.package.0.trim().is_empty()
-            })
-        {
-            return Err(NodeSpecError::InvalidSkillSelector);
+            }) {
+                return Err(NodeSpecError::InvalidSkillSelector);
+            }
+            let mut identities = std::collections::HashSet::new();
+            if skills.iter().any(|skill| {
+                !identities.insert((
+                    skill.authority.kind.as_str(),
+                    skill.authority.id.as_str(),
+                    skill.package.0.as_str(),
+                ))
+            }) {
+                return Err(NodeSpecError::DuplicateSkillSelector);
+            }
         }
         if let BackoffPolicy::Exponential {
             initial_delay_ms,
@@ -382,6 +418,8 @@ pub enum NodeSpecError {
     EmptyModel,
     #[error("node skill selectors must contain non-empty authority and package identifiers")]
     InvalidSkillSelector,
+    #[error("node skill selectors must not repeat an authority/package identity")]
+    DuplicateSkillSelector,
     #[error("node retry backoff must be positive, capped, and use at most 100% jitter")]
     InvalidRetryBackoff,
 }

@@ -24,7 +24,7 @@ pub(super) fn attach_binding(
     binding: WorkflowNodeBinding,
     spec: NodeSpec,
 ) {
-    let visibility = skill_visibility(spec.skills());
+    let visibility = skill_visibility(&spec);
     thread_store.insert(binding);
     thread_store.insert(spec);
     thread_store.insert(visibility);
@@ -40,18 +40,18 @@ pub(super) fn attach_fault(thread_store: &ExtensionData, reason: &'static str) {
     thread_store.remove::<NodeSpec>();
 }
 
-fn skill_visibility(policy: &SkillPolicy) -> SkillVisibilityPolicy {
-    match policy {
+fn skill_visibility(spec: &NodeSpec) -> SkillVisibilityPolicy {
+    match spec.skills() {
         SkillPolicy::Inherit => SkillVisibilityPolicy::AllowAll,
         SkillPolicy::Disabled => SkillVisibilityPolicy::DisableAll,
-        SkillPolicy::AllowOnly(selectors) => {
-            SkillVisibilityPolicy::allow_only(selectors.iter().map(|selector| {
+        SkillPolicy::AllowOnly(_) => {
+            SkillVisibilityPolicy::allow_only(spec.resolved_skills().iter().map(|skill| {
                 SkillIdentity::new(
                     SkillAuthority::new(
-                        skill_source_kind(&selector.authority.kind),
-                        selector.authority.id.clone(),
+                        skill_source_kind(&skill.authority.kind),
+                        skill.authority.id.clone(),
                     ),
-                    SkillPackageId(selector.package.0.clone()),
+                    SkillPackageId(skill.package.0.clone()),
                 )
             }))
         }

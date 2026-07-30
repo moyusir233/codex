@@ -39,6 +39,7 @@ pub use api::NodeThreadRef;
 pub use api::NodeTurnResult;
 pub use api::NodeTurnStatus;
 pub use api::NodeWorkingDirectory;
+pub use api::ResolvedSkillSelection;
 pub use api::RetryClassification;
 pub use api::RetryPolicy;
 pub use api::RetryRequest;

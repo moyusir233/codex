@@ -13,6 +13,7 @@ mod recovery;
 mod retry;
 mod scheduler;
 mod service;
+mod skill_policy;
 mod store;
 
 pub use cancellation::CancellationError;

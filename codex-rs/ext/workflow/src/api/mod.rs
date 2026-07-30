@@ -44,6 +44,7 @@ pub use node::NodeThreadRef;
 pub use node::NodeTurnResult;
 pub use node::NodeTurnStatus;
 pub use node::NodeWorkingDirectory;
+pub use node::ResolvedSkillSelection;
 pub use node::RetryClassification;
 pub use node::RetryPolicy;
 pub use node::RetryRequest;

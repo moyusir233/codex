@@ -62,7 +62,7 @@ impl NodeClient<'_> {
             return self.get(NodeId::parse(node_id)?).await;
         }
 
-        let node = match self
+        let (node, spec) = match self
             .service
             .store()
             .list_nodes(&self.run_id.to_string())
@@ -70,24 +70,37 @@ impl NodeClient<'_> {
             .into_iter()
             .find(|node| node.node_key == spec.key().as_str())
         {
-            Some(node) => node,
+            Some(node) => {
+                let persisted_spec = serde_json::from_value(node.spec.clone())?;
+                (node, persisted_spec)
+            }
             None => {
+                let resolved_spec = self
+                    .service
+                    .inner
+                    .node_host
+                    .get()?
+                    .resolve_node_spec(spec)
+                    .await?;
                 let node_id = NodeId::new();
-                self.service
+                let node = self
+                    .service
                     .store()
                     .create_node(
                         &self.run_id.to_string(),
                         WorkflowNodeCreate {
                             node_id: node_id.to_string(),
-                            node_key: spec.key().to_string(),
-                            spec: serde_json::to_value(&spec)?,
+                            node_key: resolved_spec.key().to_string(),
+                            spec: serde_json::to_value(&resolved_spec)?,
                             status: WorkflowNodeStatus::Ready,
-                            failure_policy: failure_policy_name(spec.failure_policy()).to_string(),
+                            failure_policy: failure_policy_name(resolved_spec.failure_policy())
+                                .to_string(),
                             created_at_ms: now,
                         },
                         &[],
                     )
-                    .await?
+                    .await?;
+                (node, resolved_spec)
             }
         };
         let node = self.materialize(node, spec.clone(), now).await?;

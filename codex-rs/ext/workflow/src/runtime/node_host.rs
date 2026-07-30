@@ -16,6 +16,11 @@ pub type NodeHostFuture<'a, T> =
 
 /// Narrow host capability used by workflow nodes without exposing app-server internals.
 pub trait WorkflowNodeHost: Send + Sync {
+    /// Resolves and validates persisted node capabilities before materialization.
+    fn resolve_node_spec(&self, spec: NodeSpec) -> NodeHostFuture<'_, NodeSpec> {
+        Box::pin(async move { Ok(spec) })
+    }
+
     fn materialize_node(
         &self,
         request: MaterializeNodeRequest,
