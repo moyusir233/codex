@@ -266,11 +266,13 @@ impl MessageProcessor {
         let goal_service = Arc::new(GoalService::new());
         let workflow_node_host_slot = codex_workflow_extension::WorkflowNodeHostSlot::new();
         let workflow_service = state_db.as_ref().map(|state| {
-            Arc::new(codex_workflow_extension::WorkflowService::new_with_registry(
-                state.workflows().clone(),
-                workflow_node_host_slot.clone(),
-                built_in_workflow_registry(),
-            ))
+            Arc::new(
+                codex_workflow_extension::WorkflowService::new_with_registry(
+                    state.workflows().clone(),
+                    workflow_node_host_slot.clone(),
+                    built_in_workflow_registry(),
+                ),
+            )
         });
         let workflow_subscriptions = workflow_service.as_ref().map(|service| {
             WorkflowSubscriptions::new(service.store().clone(), Arc::clone(&outgoing))

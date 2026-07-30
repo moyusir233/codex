@@ -128,10 +128,7 @@ impl PromptReviewCapability for FakePromptReview {
                 human_reply_artifact_id: reply_artifact_id.to_string(),
                 draft_saved: true,
                 final_artifact_ids: vec![review.synthesis_artifact_id.to_string()],
-                resume_commands: vec![format!(
-                    "codex resume {}",
-                    review.synthesizer_thread_id
-                )],
+                resume_commands: vec![format!("codex resume {}", review.synthesizer_thread_id)],
             })
         })
     }
@@ -207,10 +204,12 @@ async fn prompt_review_e2e_restarts_at_human_wait_and_resolves_once() {
     assert_eq!(waiting.status, WorkflowRunStatus::Waiting);
     assert_eq!(
         waiting.wake,
-        Some(serde_json::to_value(
-            codex_workflow_extension::WakeCondition::HumanInteraction(interaction_id)
+        Some(
+            serde_json::to_value(codex_workflow_extension::WakeCondition::HumanInteraction(
+                interaction_id
+            ))
+            .expect("serialize wake")
         )
-        .expect("serialize wake"))
     );
 
     let reply_artifact_id = ArtifactId::new();
@@ -244,8 +243,10 @@ async fn prompt_review_e2e_restarts_at_human_wait_and_resolves_once() {
         .expect("completed run");
     assert_eq!(completed.status, WorkflowRunStatus::Succeeded);
     assert_eq!(
-        completed.output.as_ref().and_then(|value| value
-            .get("human_reply_artifact_id"))
+        completed
+            .output
+            .as_ref()
+            .and_then(|value| value.get("human_reply_artifact_id"))
             .and_then(serde_json::Value::as_str),
         Some(reply_artifact_id.to_string().as_str())
     );

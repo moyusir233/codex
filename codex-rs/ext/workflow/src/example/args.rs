@@ -40,11 +40,7 @@ impl WorkflowArguments for PromptReviewArguments {
         if self.prompt_key.trim().is_empty() {
             return Err(ArgumentError::validation("prompt key must not be empty"));
         }
-        if self.lark_users.is_empty()
-            || self
-                .lark_users
-                .iter()
-                .any(|user| !user.starts_with("ou_"))
+        if self.lark_users.is_empty() || self.lark_users.iter().any(|user| !user.starts_with("ou_"))
         {
             return Err(ArgumentError::validation(
                 "at least one valid Lark `ou_` user ID is required",

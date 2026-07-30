@@ -79,7 +79,10 @@ impl Workflow for PromptReviewWorkflow {
                 review,
                 interaction_id: _,
             } => {
-                match capability.request_human(ctx.run_id(), &args, &review).await? {
+                match capability
+                    .request_human(ctx.run_id(), &args, &review)
+                    .await?
+                {
                     HumanInteractionOutcome::Waiting { interaction_id } => {
                         Ok(WorkflowTransition::Wait {
                             state: PromptReviewState::AwaitingHuman {
@@ -105,9 +108,9 @@ impl Workflow for PromptReviewWorkflow {
                     HumanInteractionOutcome::TimedOut { .. } => {
                         Err(WorkflowError::definition("Lark review request timed out"))
                     }
-                    HumanInteractionOutcome::Cancelled { .. } => {
-                        Err(WorkflowError::definition("Lark review request was cancelled"))
-                    }
+                    HumanInteractionOutcome::Cancelled { .. } => Err(WorkflowError::definition(
+                        "Lark review request was cancelled",
+                    )),
                     HumanInteractionOutcome::NeedsOperator { reason, .. } => Err(
                         WorkflowError::definition(format!("Lark review needs operator: {reason}")),
                     ),
@@ -120,13 +123,7 @@ impl Workflow for PromptReviewWorkflow {
                 reply_artifact_id,
             } => {
                 let output = capability
-                    .follow_up_and_save(
-                        ctx.run_id(),
-                        &args,
-                        &prepared,
-                        &review,
-                        reply_artifact_id,
-                    )
+                    .follow_up_and_save(ctx.run_id(), &args, &prepared, &review, reply_artifact_id)
                     .await?;
                 Ok(WorkflowTransition::Complete { output })
             }
