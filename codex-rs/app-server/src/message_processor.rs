@@ -344,6 +344,34 @@ impl MessageProcessor {
         {
             tracing::error!(%error, "failed to bind workflow node host");
         }
+        if let Some(workflow_service) = workflow_service.as_ref()
+            && config.features.enabled(codex_features::Feature::Workflows)
+        {
+            let workflow_service = workflow_service.as_ref().clone();
+            let recovery = codex_workflow_extension::WorkflowRecovery::new(
+                workflow_service.clone(),
+                workflow_service.registry(),
+                format!("app-server-{}", uuid::Uuid::now_v7()),
+                30_000,
+            );
+            tokio::spawn(async move {
+                match recovery
+                    .recover_nonterminal_runs(chrono::Utc::now().timestamp_millis())
+                    .await
+                {
+                    Ok(report) => tracing::info!(
+                        inspected_runs = report.inspected_runs,
+                        repaired_thread_bindings = report.repaired_thread_bindings,
+                        reconciled_terminal_attempts = report.reconciled_terminal_attempts,
+                        interrupted_attempts = report.interrupted_attempts,
+                        needs_operator_runs = report.needs_operator_runs,
+                        driven_runs = report.driven_runs,
+                        "completed workflow startup recovery"
+                    ),
+                    Err(error) => tracing::error!(%error, "workflow startup recovery failed"),
+                }
+            });
+        }
         let workspace_settings_cache =
             Arc::new(workspace_settings::WorkspaceSettingsCache::default());
         let app_list_shutdown_token = CancellationToken::new();
