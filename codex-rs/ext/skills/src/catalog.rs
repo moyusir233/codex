@@ -1,8 +1,14 @@
 use codex_core_skills::model::SkillDependencies;
 use codex_utils_path_uri::PathUri;
+use schemars::JsonSchema;
+use serde::Deserialize;
+use serde::Serialize;
 
 /// Source authority that owns a skill package and must be used to read it.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(rename_all = "snake_case", tag = "kind", content = "value")]
 pub enum SkillSourceKind {
     /// Codex-hosted skills, including bundled, user, repo, plugin-installed,
     /// and downloaded/materialized remote skills.
@@ -38,7 +44,9 @@ impl std::fmt::Display for SkillSourceKind {
 }
 
 /// Opaque authority identity for list/read routing.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
 pub struct SkillAuthority {
     pub kind: SkillSourceKind,
     pub id: String,
@@ -54,7 +62,10 @@ impl SkillAuthority {
 }
 
 /// Opaque package id. Callers should not parse local paths out of this value.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(transparent)]
 pub struct SkillPackageId(pub String);
 
 /// Opaque resource id inside a skill package, optionally bound to the
@@ -170,6 +181,11 @@ impl SkillCatalogEntry {
         self.display_path
             .as_deref()
             .unwrap_or_else(|| self.main_prompt.as_str())
+    }
+
+    /// Returns the stable path used by a normal structured skill invocation.
+    pub fn invocation_path(&self) -> &str {
+        self.rendered_path()
     }
 }
 
