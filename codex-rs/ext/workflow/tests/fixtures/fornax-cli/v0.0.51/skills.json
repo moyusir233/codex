@@ -1,0 +1,16 @@
+{
+  "data": [
+    {
+      "skill_id": "skill_demo_01",
+      "skill_key": "demo_skill",
+      "name": "Sanitized skill",
+      "version": "1.0.0"
+    },
+    {
+      "skill_id": "skill_demo_02",
+      "skill_key": "review_skill",
+      "name": "Sanitized review skill",
+      "version": "2.0.0"
+    }
+  ]
+}

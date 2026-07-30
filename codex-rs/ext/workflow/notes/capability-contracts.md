@@ -1,8 +1,9 @@
 # Workflow external capability contracts
 
-This note records the read-only Milestone 0 probes. It is capability evidence,
-not an authenticated service contract. No external resource was created or
-modified.
+This note records the Milestone 0 probes and the Milestone 8A typed CLI
+contract. It is capability/help evidence plus sanitized fake-backed parser
+coverage, not an authenticated disposable-workspace service contract. No
+external resource was created or modified.
 
 ## Probe environment
 
@@ -27,10 +28,47 @@ bounded, redacted stderr only as diagnostics.
 
 Capability conclusion:
 
-- Prompt/skill/trace-read support still requires command-specific fixtures.
-- Trace reads are present.
+- The production adapter accepts exactly `fornax-cli v0.0.51`.
+- Prompt get-by-key/get-by-id and full draft save through `--draft-file` are
+  implemented. Draft save uses a mode-0600 temporary file, validates the
+  complete replacement object, and remains a journal-before-dispatch mutation.
+- Local rendering supports only verified `normal` string messages and
+  `{{variable}}` substitution. Multipart, placeholder, snippet, and unknown
+  template kinds fail closed; no server render/resolve command is claimed.
+- Skill get/batch-get-by-key are implemented. Install always passes an explicit
+  absolute `--dir` staging path and never invokes the interactive implicit-home
+  behavior.
+- Trace get/list, span list pagination, and trajectory reads use typed,
+  paired time windows. Span pagination callers retain a fixed absolute window.
 - CLI trace writes are absent and must never be synthesized.
-- Authenticated JSON envelopes remain unverified.
+- The structured process runner uses an absolute executable, controlled
+  absolute cwd, cleared/allow-listed environment, null stdin, bounded
+  stdout/stderr, timeout and cooperative cancellation termination, and
+  redacted diagnostics.
+- Synthetic sanitized fixtures under
+  `tests/fixtures/fornax-cli/v0.0.51/` cover only fields consumed by the
+  adapters. Authenticated tenant envelopes remain unverified until disposable
+  resource IDs are supplied.
+
+Milestone 8A help was rechecked on 2026-07-31 with:
+
+```text
+fornax-cli prompt get-by-key --help
+fornax-cli prompt get-by-id --help
+fornax-cli prompt draft save --help
+fornax-cli skill get --help
+fornax-cli skill batch-get-by-key --help
+fornax-cli skill install --help
+fornax-cli trace get --help
+fornax-cli trace list --help
+fornax-cli span list --help
+fornax-cli trajectory --help
+```
+
+The installed binary matched the recorded flags. The session had
+authentication, but no live prompt, skill, draft, trace, or trajectory command
+was executed because no disposable resource IDs or mutation target were
+authorized.
 
 ## Lark CLI
 

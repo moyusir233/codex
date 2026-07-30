@@ -1,0 +1,38 @@
+{
+  "data": {
+    "prompt_id": "prompt_demo_01",
+    "key": "demo.workflow.greeting",
+    "name": "Sanitized greeting",
+    "version": "1.2.3",
+    "draft": {
+      "detail": {
+        "prompt_template": {
+          "template_type": "normal",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are {{name}}."
+            },
+            {
+              "role": "user",
+              "content": "Prepare {{topic}}."
+            }
+          ],
+          "variable_defs": [
+            {
+              "key": "name",
+              "type": "string"
+            },
+            {
+              "key": "topic",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    "commit": {
+      "version": "1.2.3"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "data": [
+    {
+      "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+      "span_id": "00f067aa0ba902b7",
+      "span_name": "workflow",
+      "span_type": "query",
+      "duration": 123
+    },
+    {
+      "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+      "span_id": "11f067aa0ba902b7",
+      "parent_span_id": "00f067aa0ba902b7",
+      "span_name": "model",
+      "span_type": "model",
+      "duration": 45
+    }
+  ]
+}
