@@ -79,10 +79,6 @@ where
     }
 }
 
-#[expect(
-    dead_code,
-    reason = "the durable runtime consumes erased transitions in Milestone 2"
-)]
 pub(crate) enum ErasedWorkflowTransition {
     Continue {
         checkpoint: WorkflowCheckpoint,

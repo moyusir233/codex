@@ -7,3 +7,4 @@ pub use builder::WorkflowDefinition;
 pub use builder::WorkflowDefinitionMetadata;
 pub use builder::WorkflowRegistry;
 pub use builder::WorkflowRegistryBuilder;
+pub(crate) use erased::ErasedWorkflowTransition;

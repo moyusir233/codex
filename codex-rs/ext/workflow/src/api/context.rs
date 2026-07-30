@@ -1,23 +1,55 @@
+use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
+
+use tokio::sync::Notify;
 
 use crate::api::WorkflowRunId;
 
 /// Cooperative cancellation view exposed to workflow reducer code.
+#[derive(Clone)]
 pub struct WorkflowCancellation {
+    state: Arc<WorkflowCancellationState>,
+}
+
+struct WorkflowCancellationState {
     requested: AtomicBool,
+    notify: Notify,
 }
 
 impl WorkflowCancellation {
     pub(crate) fn new(requested: bool) -> Self {
         Self {
-            requested: AtomicBool::new(requested),
+            state: Arc::new(WorkflowCancellationState {
+                requested: AtomicBool::new(requested),
+                notify: Notify::new(),
+            }),
         }
     }
 
     /// Returns whether cancellation has been requested for the run.
     pub fn is_requested(&self) -> bool {
-        self.requested.load(Ordering::Acquire)
+        self.state.requested.load(Ordering::Acquire)
+    }
+
+    /// Waits until cancellation is requested.
+    ///
+    /// Process-backed effects should race this future with child completion and
+    /// terminate their child when cancellation wins.
+    pub async fn cancelled(&self) {
+        loop {
+            let notified = self.state.notify.notified();
+            if self.is_requested() {
+                return;
+            }
+            notified.await;
+        }
+    }
+
+    pub(crate) fn request(&self) {
+        if !self.state.requested.swap(true, Ordering::AcqRel) {
+            self.state.notify.notify_waiters();
+        }
     }
 }
 
@@ -31,10 +63,6 @@ pub struct WorkflowContext<'a> {
 }
 
 impl<'a> WorkflowContext<'a> {
-    #[expect(
-        dead_code,
-        reason = "the durable runtime constructs reducer contexts in Milestone 2"
-    )]
     pub(crate) fn new(parts: &'a WorkflowContextParts) -> Self {
         Self { parts }
     }
@@ -56,14 +84,13 @@ pub(crate) struct WorkflowContextParts {
 }
 
 impl WorkflowContextParts {
-    #[expect(
-        dead_code,
-        reason = "the durable runtime constructs reducer contexts in Milestone 2"
-    )]
-    pub(crate) fn new(run_id: WorkflowRunId, cancellation_requested: bool) -> Self {
+    pub(crate) fn with_cancellation(
+        run_id: WorkflowRunId,
+        cancellation: WorkflowCancellation,
+    ) -> Self {
         Self {
             run_id,
-            cancellation: WorkflowCancellation::new(cancellation_requested),
+            cancellation,
         }
     }
 }

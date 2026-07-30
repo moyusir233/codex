@@ -232,10 +232,6 @@ impl WorkflowDefinition {
         Ok(())
     }
 
-    #[expect(
-        dead_code,
-        reason = "the durable runtime dispatches reducer steps in Milestone 2"
-    )]
     pub(crate) async fn step(
         &self,
         context: WorkflowContext<'_>,
@@ -316,6 +312,15 @@ impl WorkflowRegistryBuilder {
 pub struct WorkflowRegistry {
     definitions: BTreeMap<(WorkflowName, WorkflowVersion), WorkflowDefinition>,
     defaults: BTreeMap<WorkflowName, WorkflowVersion>,
+}
+
+impl Default for WorkflowRegistry {
+    fn default() -> Self {
+        Self {
+            definitions: BTreeMap::new(),
+            defaults: BTreeMap::new(),
+        }
+    }
 }
 
 impl WorkflowRegistry {

@@ -1,5 +1,8 @@
 use std::collections::BTreeMap;
+use std::num::NonZeroU32;
+use std::num::NonZeroUsize;
 
+use codex_protocol::ThreadId;
 use codex_protocol::config_types::CollaborationMode;
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::protocol::AskForApproval;
@@ -118,6 +121,90 @@ pub enum SkillPolicy {
     AllowOnly(Vec<SkillSelector>),
 }
 
+/// Fan-in condition applied to a downstream node's persisted dependencies.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "kind", content = "count")]
+pub enum DependencyPolicy {
+    AllSucceeded,
+    AllTerminal,
+    AtLeast(NonZeroUsize),
+}
+
+/// Run behavior when an upstream node reaches a terminal failure.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FailurePolicy {
+    #[default]
+    FailFast,
+    ContinueIndependentBranches,
+    SkipDependents,
+}
+
+/// Session choice for a classified retry.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RetrySession {
+    #[default]
+    NewTurnOnSameThread,
+    FreshThread,
+}
+
+/// Bounded retry delay expressed without floating-point ambiguity.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "kind")]
+pub enum BackoffPolicy {
+    #[default]
+    None,
+    Fixed {
+        delay_ms: u64,
+    },
+    Exponential {
+        initial_delay_ms: u64,
+        maximum_delay_ms: u64,
+        jitter_percent: u8,
+    },
+}
+
+/// Failure classes that a node definition explicitly allows to retry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RetryClassification {
+    ModelTransient,
+    ToolTransient,
+    RateLimited,
+    Interrupted,
+}
+
+/// Validated retry policy snapshotted into a durable node.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RetryPolicy {
+    pub maximum_attempts: NonZeroU32,
+    pub backoff: BackoffPolicy,
+    pub session: RetrySession,
+    pub retry_on: Vec<RetryClassification>,
+}
+
+impl Default for RetryPolicy {
+    fn default() -> Self {
+        Self {
+            maximum_attempts: NonZeroU32::MIN,
+            backoff: BackoffPolicy::None,
+            session: RetrySession::NewTurnOnSameThread,
+            retry_on: Vec::new(),
+        }
+    }
+}
+
+/// Sensitivity attached to the node's final result.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NodeOutputClassification {
+    Public,
+    #[default]
+    Internal,
+    Sensitive,
+}
+
 /// Validated settings for one logical workflow node.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodeSpec {
@@ -129,6 +216,12 @@ pub struct NodeSpec {
     approvals: NodeApprovals,
     collaboration_mode: NodeCollaborationMode,
     skills: SkillPolicy,
+    #[serde(default)]
+    retry: RetryPolicy,
+    #[serde(default)]
+    output_classification: NodeOutputClassification,
+    #[serde(default)]
+    failure_policy: FailurePolicy,
 }
 
 impl NodeSpec {
@@ -144,6 +237,9 @@ impl NodeSpec {
                 approvals: NodeApprovals::WorkflowDefault,
                 collaboration_mode: NodeCollaborationMode::WorkflowDefault,
                 skills: SkillPolicy::Inherit,
+                retry: RetryPolicy::default(),
+                output_classification: NodeOutputClassification::Internal,
+                failure_policy: FailurePolicy::FailFast,
             },
         }
     }
@@ -178,6 +274,18 @@ impl NodeSpec {
 
     pub fn skills(&self) -> &SkillPolicy {
         &self.skills
+    }
+
+    pub fn retry(&self) -> &RetryPolicy {
+        &self.retry
+    }
+
+    pub fn output_classification(&self) -> NodeOutputClassification {
+        self.output_classification
+    }
+
+    pub fn failure_policy(&self) -> FailurePolicy {
+        self.failure_policy
     }
 }
 
@@ -222,6 +330,21 @@ impl NodeSpecBuilder {
         self
     }
 
+    pub fn retry(mut self, value: RetryPolicy) -> Self {
+        self.spec.retry = value;
+        self
+    }
+
+    pub fn output_classification(mut self, value: NodeOutputClassification) -> Self {
+        self.spec.output_classification = value;
+        self
+    }
+
+    pub fn failure_policy(mut self, value: FailurePolicy) -> Self {
+        self.spec.failure_policy = value;
+        self
+    }
+
     pub fn build(self) -> Result<NodeSpec, NodeSpecError> {
         if let NodeModel::Named(model) = &self.spec.model
             && model.trim().is_empty()
@@ -237,6 +360,17 @@ impl NodeSpecBuilder {
         {
             return Err(NodeSpecError::InvalidSkillSelector);
         }
+        if let BackoffPolicy::Exponential {
+            initial_delay_ms,
+            maximum_delay_ms,
+            jitter_percent,
+        } = &self.spec.retry.backoff
+            && (*initial_delay_ms == 0
+                || maximum_delay_ms < initial_delay_ms
+                || *jitter_percent > 100)
+        {
+            return Err(NodeSpecError::InvalidRetryBackoff);
+        }
         Ok(self.spec)
     }
 }
@@ -248,6 +382,8 @@ pub enum NodeSpecError {
     EmptyModel,
     #[error("node skill selectors must contain non-empty authority and package identifiers")]
     InvalidSkillSelector,
+    #[error("node retry backoff must be positive, capped, and use at most 100% jitter")]
+    InvalidRetryBackoff,
 }
 
 /// User-visible input and output contract for one normal Codex turn.
@@ -309,6 +445,13 @@ pub struct WorkflowNodeLaunch {
     pub spec: NodeSpec,
 }
 
+/// One resumable normal Codex thread ever owned by a logical node.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NodeThreadRef {
+    pub thread_id: ThreadId,
+    pub ordinal: u32,
+}
+
 /// Terminal status observed after the normal app-server listener reduced the event.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -332,11 +475,22 @@ pub enum CancellationReason {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RetryRequest {
     pub input: NodeInput,
+    pub classification: RetryClassification,
 }
 
 impl RetryRequest {
     pub fn same_thread(input: NodeInput) -> Self {
-        Self { input }
+        Self {
+            input,
+            classification: RetryClassification::Interrupted,
+        }
+    }
+
+    pub fn classified(input: NodeInput, classification: RetryClassification) -> Self {
+        Self {
+            input,
+            classification,
+        }
     }
 }
 
