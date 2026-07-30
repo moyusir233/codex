@@ -1,5 +1,6 @@
 #![allow(clippy::expect_used)]
 
+use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -22,6 +23,10 @@ use codex_workflow_extension::NodeTurnResult;
 use codex_workflow_extension::NodeTurnStatus;
 use codex_workflow_extension::PreparedTurnDisposition;
 use codex_workflow_extension::PreparedTurnRequest;
+use codex_workflow_extension::RecoverTurnRequest;
+use codex_workflow_extension::RecoveredTurnState;
+use codex_workflow_extension::RetryClassification;
+use codex_workflow_extension::RetryPolicy;
 use codex_workflow_extension::RetryRequest;
 use codex_workflow_extension::RuntimeShutdown;
 use codex_workflow_extension::SteerTurnRequest;
@@ -75,6 +80,26 @@ impl WorkflowNodeHost for RecordingHost {
         })
     }
 
+    fn find_materialized_nodes(
+        &self,
+        _binding: WorkflowNodeBinding,
+    ) -> NodeHostFuture<'_, Vec<ThreadId>> {
+        Box::pin(async move {
+            Ok(
+                if self
+                    .materializations
+                    .lock()
+                    .expect("materialization lock")
+                    .is_empty()
+                {
+                    Vec::new()
+                } else {
+                    vec![self.thread_id]
+                },
+            )
+        })
+    }
+
     fn submit_prepared_turn(
         &self,
         request: PreparedTurnRequest,
@@ -102,6 +127,20 @@ impl WorkflowNodeHost for RecordingHost {
                 final_output: Some("done".to_string()),
                 error: None,
             })
+        })
+    }
+
+    fn recover_prepared_turn(
+        &self,
+        request: RecoverTurnRequest,
+    ) -> NodeHostFuture<'_, RecoveredTurnState> {
+        Box::pin(async move {
+            Ok(RecoveredTurnState::Terminal(NodeTurnResult {
+                turn_id: request.submission_id,
+                status: NodeTurnStatus::Completed,
+                final_output: Some("done".to_string()),
+                error: None,
+            }))
         })
     }
 
@@ -192,6 +231,11 @@ async fn node_lifecycle_journals_idempotent_turns_and_delegates_explicit_operati
     slot.bind(host.clone()).expect("bind node host");
     let service = WorkflowService::new(runtime.workflows().clone(), slot);
     let spec = NodeSpec::builder(NodeKey::new("primary").expect("node key"))
+        .retry(RetryPolicy {
+            maximum_attempts: NonZeroU32::new(2).expect("nonzero attempts"),
+            retry_on: vec![RetryClassification::Interrupted],
+            ..RetryPolicy::default()
+        })
         .build()
         .expect("node spec");
 
