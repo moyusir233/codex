@@ -340,6 +340,10 @@ pub(super) async fn ensure_listener_task_running(
                         fallback_model_provider.clone(),
                     )
                     .await;
+                    thread_state
+                        .lock()
+                        .await
+                        .resolve_tracked_terminal_waiters();
                 }
                 unloading_watchers_open = unloading_state.wait_for_unloading_trigger() => {
                     if !unloading_watchers_open {
@@ -508,6 +512,15 @@ pub(super) async fn handle_thread_listener_command(
             )
             .await;
             let _ = completion_tx.send(());
+        }
+        ThreadListenerCommand::RegisterTerminalWaiter {
+            turn_id,
+            completion_tx,
+        } => {
+            thread_state
+                .lock()
+                .await
+                .register_terminal_waiter(turn_id, completion_tx);
         }
     }
 }

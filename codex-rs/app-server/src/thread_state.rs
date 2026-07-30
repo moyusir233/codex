@@ -64,6 +64,30 @@ pub(crate) enum ThreadListenerCommand {
         request_id: RequestId,
         completion_tx: oneshot::Sender<()>,
     },
+    // RegisterTerminalWaiter is an internal observer seam. The existing listener
+    // remains the sole consumer of core events and resolves this waiter in FIFO
+    // order after updating thread state.
+    RegisterTerminalWaiter {
+        turn_id: String,
+        completion_tx: oneshot::Sender<ThreadTerminalObservation>,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ThreadTerminalObservation {
+    pub(crate) turn_id: String,
+    pub(crate) status: ThreadTerminalStatus,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ThreadTerminalStatus {
+    Completed,
+    Aborted,
+}
+
+struct TerminalWaiter {
+    turn_id: String,
+    completion_tx: oneshot::Sender<ThreadTerminalObservation>,
 }
 
 /// Per-conversation accumulation of the latest states e.g. error message while a turn runs.
@@ -80,6 +104,12 @@ pub(crate) struct ThreadState {
     pub(crate) pending_rollbacks: Option<ConnectionRequestId>,
     pub(crate) turn_summary: TurnSummary,
     pub(crate) last_terminal_turn_id: Option<String>,
+    last_terminal_observation: Option<ThreadTerminalObservation>,
+    terminal_waiters: Vec<TerminalWaiter>,
+    tracked_terminal_waiter_completions: Vec<(
+        oneshot::Sender<ThreadTerminalObservation>,
+        ThreadTerminalObservation,
+    )>,
     pub(crate) cancel_tx: Option<oneshot::Sender<()>>,
     pub(crate) experimental_raw_events: bool,
     pub(crate) listener_generation: u64,
@@ -123,6 +153,8 @@ impl ThreadState {
         }
         self.listener_command_tx = None;
         self.current_turn_history.reset();
+        self.terminal_waiters.clear();
+        self.tracked_terminal_waiter_completions.clear();
         self.listener_thread = None;
         self.watch_registration = WatchRegistration::default();
     }
@@ -146,12 +178,57 @@ impl ThreadState {
             self.turn_summary.started_at = payload.started_at;
         }
         self.current_turn_history.handle_event(event);
-        if matches!(event, EventMsg::TurnAborted(_) | EventMsg::TurnComplete(_))
-            && !self.current_turn_history.has_active_turn()
-        {
-            self.last_terminal_turn_id = Some(event_turn_id.to_string());
-            self.current_turn_history.reset();
+        let terminal_status = match event {
+            EventMsg::TurnComplete(_) => Some(ThreadTerminalStatus::Completed),
+            EventMsg::TurnAborted(_) => Some(ThreadTerminalStatus::Aborted),
+            _ => None,
+        };
+        if let Some(status) = terminal_status {
+            let observation = ThreadTerminalObservation {
+                turn_id: event_turn_id.to_string(),
+                status,
+            };
+            self.last_terminal_observation = Some(observation.clone());
+            let mut retained = Vec::new();
+            for waiter in self.terminal_waiters.drain(..) {
+                if waiter.turn_id == event_turn_id {
+                    self.tracked_terminal_waiter_completions
+                        .push((waiter.completion_tx, observation.clone()));
+                } else {
+                    retained.push(waiter);
+                }
+            }
+            self.terminal_waiters = retained;
+            if !self.current_turn_history.has_active_turn() {
+                self.last_terminal_turn_id = Some(event_turn_id.to_string());
+                self.current_turn_history.reset();
+            }
         }
+    }
+
+    pub(crate) fn resolve_tracked_terminal_waiters(&mut self) {
+        for (completion_tx, observation) in self.tracked_terminal_waiter_completions.drain(..) {
+            let _ = completion_tx.send(observation);
+        }
+    }
+
+    pub(crate) fn register_terminal_waiter(
+        &mut self,
+        turn_id: String,
+        completion_tx: oneshot::Sender<ThreadTerminalObservation>,
+    ) {
+        if let Some(observation) = self
+            .last_terminal_observation
+            .as_ref()
+            .filter(|observation| observation.turn_id == turn_id)
+        {
+            let _ = completion_tx.send(observation.clone());
+            return;
+        }
+        self.terminal_waiters.push(TerminalWaiter {
+            turn_id,
+            completion_tx,
+        });
     }
 
     pub(crate) fn note_thread_settings(&mut self, thread_settings: ThreadSettings) -> bool {
@@ -159,6 +236,28 @@ impl ThreadState {
         self.last_thread_settings = Some(thread_settings);
         changed
     }
+}
+
+#[expect(
+    dead_code,
+    reason = "Milestone 0 feasibility seam is consumed by the workflow node host in Milestone 3"
+)]
+pub(crate) async fn wait_for_terminal_turn(
+    thread_state: &Arc<Mutex<ThreadState>>,
+    turn_id: String,
+) -> Option<ThreadTerminalObservation> {
+    let (completion_tx, completion_rx) = oneshot::channel();
+    let listener_command_tx = {
+        let state = thread_state.lock().await;
+        state.listener_command_tx()
+    }?;
+    listener_command_tx
+        .send(ThreadListenerCommand::RegisterTerminalWaiter {
+            turn_id,
+            completion_tx,
+        })
+        .ok()?;
+    completion_rx.await.ok()
 }
 
 pub(crate) async fn resolve_server_request_on_thread_listener(
@@ -202,6 +301,13 @@ mod tests {
     use codex_protocol::config_types::CollaborationMode;
     use codex_protocol::config_types::ModeKind;
     use codex_protocol::config_types::Settings;
+    use codex_protocol::protocol::ExecApprovalRequestEvent;
+    use codex_protocol::protocol::RequestUserInputEvent;
+    use codex_protocol::protocol::TurnAbortReason;
+    use codex_protocol::protocol::TurnAbortedEvent;
+    use codex_protocol::protocol::TurnCompleteEvent;
+    use codex_protocol::protocol::TurnStartedEvent;
+    use codex_protocol::request_user_input::RequestUserInputQuestion;
     use codex_utils_absolute_path::AbsolutePathBuf;
     use pretty_assertions::assert_eq;
 
@@ -219,6 +325,120 @@ mod tests {
         ];
 
         assert_eq!(results, vec![true, false, true, false]);
+    }
+
+    #[tokio::test]
+    async fn workflow_listener_terminal_waiters_observe_without_consuming_events() {
+        let mut state = ThreadState::default();
+        let (first_tx, first_rx) = oneshot::channel();
+        state.register_terminal_waiter("turn-1".to_string(), first_tx);
+
+        let regular_client_events = vec![
+            EventMsg::TurnStarted(TurnStartedEvent {
+                turn_id: "turn-1".to_string(),
+                trace_id: None,
+                started_at: None,
+                model_context_window: None,
+                collaboration_mode_kind: ModeKind::Default,
+            }),
+            EventMsg::ExecApprovalRequest(ExecApprovalRequestEvent {
+                call_id: "approval-1".to_string(),
+                approval_id: None,
+                turn_id: "turn-1".to_string(),
+                environment_id: None,
+                started_at_ms: 0,
+                command: vec!["example".to_string()],
+                cwd: AbsolutePathBuf::from_absolute_path("/tmp").expect("absolute path"),
+                reason: Some("test approval".to_string()),
+                network_approval_context: None,
+                proposed_execpolicy_amendment: None,
+                proposed_network_policy_amendments: None,
+                additional_permissions: None,
+                available_decisions: None,
+                parsed_cmd: Vec::new(),
+            }),
+            EventMsg::RequestUserInput(RequestUserInputEvent {
+                call_id: "question-1".to_string(),
+                turn_id: "turn-1".to_string(),
+                questions: vec![RequestUserInputQuestion {
+                    id: "answer".to_string(),
+                    header: "Answer".to_string(),
+                    question: "Continue?".to_string(),
+                    is_other: false,
+                    is_secret: false,
+                    options: None,
+                }],
+                auto_resolution_ms: None,
+            }),
+            EventMsg::TurnComplete(TurnCompleteEvent {
+                turn_id: "turn-1".to_string(),
+                last_agent_message: Some("done".to_string()),
+                error: None,
+                started_at: None,
+                completed_at: None,
+                duration_ms: None,
+                time_to_first_token_ms: None,
+            }),
+        ];
+        let mut delivered_to_regular_client = Vec::new();
+        for event in &regular_client_events {
+            state.track_current_turn_event("turn-1", event);
+            delivered_to_regular_client
+                .push(serde_json::to_value(event).expect("serialize client event"));
+            state.resolve_tracked_terminal_waiters();
+        }
+        assert_eq!(
+            regular_client_events
+                .iter()
+                .map(|event| serde_json::to_value(event).expect("serialize source event"))
+                .collect::<Vec<_>>(),
+            delivered_to_regular_client
+        );
+
+        let expected = ThreadTerminalObservation {
+            turn_id: "turn-1".to_string(),
+            status: ThreadTerminalStatus::Completed,
+        };
+        assert_eq!(expected, first_rx.await.expect("registered waiter"));
+
+        let (late_tx, late_rx) = oneshot::channel();
+        state.register_terminal_waiter("turn-1".to_string(), late_tx);
+        assert_eq!(expected, late_rx.await.expect("late waiter"));
+
+        let (aborted_tx, mut aborted_rx) = oneshot::channel();
+        state.register_terminal_waiter("turn-2".to_string(), aborted_tx);
+        state.track_current_turn_event(
+            "turn-2",
+            &EventMsg::TurnStarted(TurnStartedEvent {
+                turn_id: "turn-2".to_string(),
+                trace_id: None,
+                started_at: None,
+                model_context_window: None,
+                collaboration_mode_kind: ModeKind::Default,
+            }),
+        );
+        assert_eq!(
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty),
+            aborted_rx.try_recv()
+        );
+        state.track_current_turn_event(
+            "turn-2",
+            &EventMsg::TurnAborted(TurnAbortedEvent {
+                turn_id: Some("turn-2".to_string()),
+                reason: TurnAbortReason::Interrupted,
+                started_at: None,
+                completed_at: None,
+                duration_ms: None,
+            }),
+        );
+        state.resolve_tracked_terminal_waiters();
+        assert_eq!(
+            ThreadTerminalObservation {
+                turn_id: "turn-2".to_string(),
+                status: ThreadTerminalStatus::Aborted,
+            },
+            aborted_rx.await.expect("aborted waiter")
+        );
     }
 
     fn thread_settings(model: &str) -> ThreadSettings {
