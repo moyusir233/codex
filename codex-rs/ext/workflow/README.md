@@ -85,6 +85,12 @@ must install this capability only after the whole bundle passes preflight.
 Tests replace it with a deterministic fake and exercise the same reducer,
 including a process restart while waiting for the human reply. An absent bundle
 causes `workflow/run` to fail before a run, node, or external effect is created.
+`LivePromptReviewCapability::preflight` is the concrete composition path: it
+verifies both pinned CLIs and accepts only a trace writer already returned by
+the bridge's exact-version/live-approval preflight. It creates run-scoped
+durable trace clients, drives planner/reviewer/synthesizer nodes, journals the
+Lark document and complete-draft mutations, stores only classified artifacts
+and safe trace digests, and finishes the root span after the human follow-up.
 
 Example discovery and launch:
 
