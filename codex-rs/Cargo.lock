@@ -4545,6 +4545,7 @@ dependencies = [
  "codex-thread-store",
  "codex-utils-absolute-path",
  "pretty_assertions",
+ "reqwest 0.12.28",
  "schemars 0.8.22",
  "semver",
  "serde",
@@ -4552,8 +4553,10 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "thiserror 2.0.18",
+ "tiny_http",
  "tokio",
  "tracing",
+ "url",
  "uuid",
 ]
 

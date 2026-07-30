@@ -16,6 +16,7 @@ use crate::WorkflowNodeBinding;
 use crate::WorkflowRegistry;
 use crate::WorkflowRunId;
 use crate::WorkflowVersion;
+use crate::integrations::fornax::FornaxWorkflowClient;
 
 use super::DriveOutcome;
 use super::RecoverTurnRequest;
@@ -39,6 +40,7 @@ pub struct WorkflowRecovery {
     registry: Arc<WorkflowRegistry>,
     owner: String,
     lease_duration_ms: i64,
+    fornax: Option<Arc<FornaxWorkflowClient>>,
 }
 
 impl WorkflowRecovery {
@@ -53,7 +55,13 @@ impl WorkflowRecovery {
             registry,
             owner: owner.into(),
             lease_duration_ms: lease_duration_ms.max(1),
+            fornax: None,
         }
+    }
+
+    pub fn with_fornax_client(mut self, client: Arc<FornaxWorkflowClient>) -> Self {
+        self.fornax = Some(client);
+        self
     }
 
     pub async fn recover_nonterminal_runs(
@@ -82,6 +90,7 @@ impl WorkflowRecovery {
                         self.owner.clone(),
                         self.lease_duration_ms,
                         self.service.cancellation_signals(),
+                        self.fornax.as_ref().map(Arc::clone),
                     );
                     if !matches!(
                         driver.step_once(run_id, now_ms).await?,

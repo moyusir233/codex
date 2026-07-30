@@ -13,6 +13,7 @@ use crate::WorkflowRegistry;
 use crate::WorkflowRunId;
 use crate::WorkflowVersion;
 use crate::api::WorkflowContextParts;
+use crate::integrations::fornax::FornaxWorkflowClient;
 use crate::registry::ErasedWorkflowTransition;
 
 use super::CancellationSignals;
@@ -37,6 +38,7 @@ pub struct WorkflowDriver {
     owner: String,
     lease_duration_ms: i64,
     cancellation_signals: CancellationSignals,
+    fornax: Option<Arc<FornaxWorkflowClient>>,
 }
 
 impl WorkflowDriver {
@@ -52,6 +54,7 @@ impl WorkflowDriver {
             owner: owner.into(),
             lease_duration_ms: lease_duration_ms.max(1),
             cancellation_signals: CancellationSignals::default(),
+            fornax: None,
         }
     }
 
@@ -61,6 +64,7 @@ impl WorkflowDriver {
         owner: impl Into<String>,
         lease_duration_ms: i64,
         cancellation_signals: CancellationSignals,
+        fornax: Option<Arc<FornaxWorkflowClient>>,
     ) -> Self {
         Self {
             store,
@@ -68,7 +72,13 @@ impl WorkflowDriver {
             owner: owner.into(),
             lease_duration_ms: lease_duration_ms.max(1),
             cancellation_signals,
+            fornax,
         }
+    }
+
+    pub fn with_fornax_client(mut self, client: Arc<FornaxWorkflowClient>) -> Self {
+        self.fornax = Some(client);
+        self
     }
 
     pub async fn step_once(
@@ -202,7 +212,11 @@ impl WorkflowDriver {
             }
         };
         let checkpoint = WorkflowCheckpoint::new(run.state_schema_version, run.state.clone());
-        let parts = WorkflowContextParts::with_cancellation(run_id, cancellation);
+        let parts = WorkflowContextParts::with_cancellation(
+            run_id,
+            cancellation,
+            self.fornax.as_ref().map(Arc::clone),
+        );
         let transition = definition
             .step(WorkflowContext::new(&parts), checkpoint)
             .await;

@@ -5,6 +5,7 @@ use std::sync::atomic::Ordering;
 use tokio::sync::Notify;
 
 use crate::api::WorkflowRunId;
+use crate::integrations::fornax::FornaxWorkflowClient;
 
 /// Cooperative cancellation view exposed to workflow reducer code.
 #[derive(Clone)]
@@ -76,21 +77,29 @@ impl<'a> WorkflowContext<'a> {
     pub fn cancellation(&self) -> &WorkflowCancellation {
         &self.parts.cancellation
     }
+
+    /// Returns the typed Fornax facade configured by the workflow host.
+    pub fn fornax(&self) -> Option<&FornaxWorkflowClient> {
+        self.parts.fornax.as_deref()
+    }
 }
 
 pub(crate) struct WorkflowContextParts {
     run_id: WorkflowRunId,
     cancellation: WorkflowCancellation,
+    fornax: Option<Arc<FornaxWorkflowClient>>,
 }
 
 impl WorkflowContextParts {
     pub(crate) fn with_cancellation(
         run_id: WorkflowRunId,
         cancellation: WorkflowCancellation,
+        fornax: Option<Arc<FornaxWorkflowClient>>,
     ) -> Self {
         Self {
             run_id,
             cancellation,
+            fornax,
         }
     }
 }
