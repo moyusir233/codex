@@ -162,6 +162,11 @@ pub(super) fn server_notification_thread_target(
             }
         }
         ServerNotification::SkillsChanged(_)
+        | ServerNotification::WorkflowRunUpdated(_)
+        | ServerNotification::WorkflowNodeUpdated(_)
+        | ServerNotification::WorkflowInteractionRequested(_)
+        | ServerNotification::WorkflowInteractionResolved(_)
+        | ServerNotification::WorkflowArtifactCreated(_)
         | ServerNotification::McpServerOauthLoginCompleted(_)
         | ServerNotification::AccountUpdated(_)
         | ServerNotification::AccountRateLimitsUpdated(_)
@@ -204,6 +209,8 @@ mod tests {
     use codex_app_server_protocol::ThreadSettings;
     use codex_app_server_protocol::ThreadSettingsUpdatedNotification;
     use codex_app_server_protocol::WarningNotification;
+    use codex_app_server_protocol::WorkflowRunStatus;
+    use codex_app_server_protocol::WorkflowRunUpdatedNotification;
     use codex_protocol::ThreadId;
     use codex_protocol::config_types::CollaborationMode;
     use codex_protocol::config_types::ModeKind;
@@ -248,6 +255,22 @@ mod tests {
         let target = server_notification_thread_target(&notification);
 
         assert_eq!(target, ServerNotificationThreadTarget::Global);
+    }
+
+    #[test]
+    fn workflow_orchestration_notifications_are_global() {
+        let notification = ServerNotification::WorkflowRunUpdated(WorkflowRunUpdatedNotification {
+            run_id: "wfr_01".to_string(),
+            sequence: 2,
+            created_at_ms: 42,
+            status: WorkflowRunStatus::Running,
+            metadata: serde_json::json!({}),
+        });
+
+        assert_eq!(
+            server_notification_thread_target(&notification),
+            ServerNotificationThreadTarget::Global
+        );
     }
 
     #[test]

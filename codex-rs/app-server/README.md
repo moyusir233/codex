@@ -155,6 +155,11 @@ Example with notification opt-out:
 - `thread/goal/clear` — clear the current persisted goal for a materialized thread; returns whether a goal was removed and emits `thread/goal/cleared` when state changes.
 - `thread/goal/updated` — notification emitted whenever a thread goal changes; includes the full current goal.
 - `thread/goal/cleared` — notification emitted whenever a thread goal is removed.
+- `workflow/list`, `workflow/run` — experimental; discover registered workflow definitions or create a durable run from tagged `argv`/`json` arguments.
+- `workflowRun/list`, `workflowRun/read`, `workflowRun/resume`, `workflowRun/cancel` — experimental; inspect and control durable workflow runs.
+- `workflowRun/subscribe`, `workflowRun/unsubscribe` — experimental; replay run-local sequenced events and receive later workflow notifications on the current connection.
+- `workflowInteraction/respond` — experimental; resolve a durable workflow interaction with an idempotency key.
+- `workflowRun/updated`, `workflowNode/updated`, `workflowInteraction/requested`, `workflowInteraction/resolved`, `workflowArtifact/created` — experimental notifications with run-local sequence numbers and redacted metadata.
 - `thread/settings/updated` — experimental notification emitted to subscribed clients when a loaded thread’s effective next-turn settings change; includes `threadId` and the full `threadSettings`.
 - `thread/status/changed` — notification emitted when a loaded thread’s status changes (`threadId` + new `status`).
 - `thread/archive` — move a thread’s rollout file into the archived directory and attempt to move any spawned descendant thread rollout files; returns `{}` on success and emits `thread/archived` for each archived thread.
@@ -636,6 +641,38 @@ Use `thread/goal/clear` to remove the current goal.
 { "id": 30, "result": { "cleared": true } }
 { "method": "thread/goal/cleared", "params": { "threadId": "thr_123" } }
 ```
+
+### Example: Run and subscribe to a workflow (experimental)
+
+Workflow methods require both `capabilities.experimentalApi: true` during
+`initialize` and the server-side `workflows` feature. Launch arguments use one
+explicit tagged representation:
+
+```json
+{ "method": "workflow/run", "id": 40, "params": {
+  "workflowName": "prompt-review",
+  "arguments": { "kind": "argv", "argv": ["--prompt-key", "welcome"] },
+  "subscribe": true,
+  "nodeThreads": "include"
+} }
+```
+
+Use `"kind": "json"` with a `value` field for structured arguments. A
+subscribed connection can reconnect and replay only later events:
+
+```json
+{ "method": "workflowRun/subscribe", "id": 41, "params": {
+  "runId": "wfr_...",
+  "afterSequence": 12,
+  "nodeThreads": "referencesOnly"
+} }
+```
+
+The response includes a current run snapshot, replayed events, and
+`snapshotRequired`. Persist the latest delivered sequence. When
+`snapshotRequired` is true, rebuild from the returned snapshot. With
+`nodeThreads: "include"`, node approvals, items, turns, and errors retain their
+normal thread protocol types; they are not wrapped as workflow notifications.
 
 ### Example: Archive a thread
 

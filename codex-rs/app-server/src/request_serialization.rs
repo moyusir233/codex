@@ -42,6 +42,9 @@ pub(crate) enum RequestSerializationQueueKey {
     McpOauth {
         server_name: String,
     },
+    WorkflowRun {
+        run_id: String,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -97,6 +100,10 @@ impl RequestSerializationQueueKey {
             ),
             ClientRequestSerializationScope::McpOauth { server_name } => (
                 Self::McpOauth { server_name },
+                RequestSerializationAccess::Exclusive,
+            ),
+            ClientRequestSerializationScope::WorkflowRun { run_id } => (
+                Self::WorkflowRun { run_id },
                 RequestSerializationAccess::Exclusive,
             ),
         }
@@ -247,6 +254,33 @@ mod tests {
 
     fn queue_drain_timeout() -> Duration {
         Duration::from_secs(/*secs*/ 1)
+    }
+
+    #[test]
+    fn workflow_run_requests_share_ordering_across_connections() {
+        let (first_key, first_access) = RequestSerializationQueueKey::from_scope(
+            ConnectionId(1),
+            ClientRequestSerializationScope::WorkflowRun {
+                run_id: "run-a".to_string(),
+            },
+        );
+        let (second_key, second_access) = RequestSerializationQueueKey::from_scope(
+            ConnectionId(2),
+            ClientRequestSerializationScope::WorkflowRun {
+                run_id: "run-a".to_string(),
+            },
+        );
+        let (other_key, _) = RequestSerializationQueueKey::from_scope(
+            ConnectionId(1),
+            ClientRequestSerializationScope::WorkflowRun {
+                run_id: "run-b".to_string(),
+            },
+        );
+
+        assert_eq!(first_key, second_key);
+        assert_ne!(first_key, other_key);
+        assert_eq!(first_access, RequestSerializationAccess::Exclusive);
+        assert_eq!(second_access, RequestSerializationAccess::Exclusive);
     }
 
     fn shutdown_wait_timeout() -> Duration {

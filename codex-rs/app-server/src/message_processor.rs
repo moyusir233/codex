@@ -42,6 +42,7 @@ use crate::request_processors::ThreadGoalRequestProcessor;
 use crate::request_processors::ThreadRequestProcessor;
 use crate::request_processors::TurnRequestProcessor;
 use crate::request_processors::WindowsSandboxRequestProcessor;
+use crate::request_processors::WorkflowRequestProcessor;
 use crate::request_serialization::QueuedInitializedRequest;
 use crate::request_serialization::RequestSerializationQueueKey;
 use crate::request_serialization::RequestSerializationQueues;
@@ -50,6 +51,7 @@ use crate::thread_state::ConnectionCapabilities;
 use crate::thread_state::ThreadStateManager;
 use crate::transport::AppServerTransport;
 use crate::transport::RemoteControlHandle;
+use crate::workflow_subscriptions::WorkflowSubscriptions;
 use codex_analytics::AnalyticsEventsClient;
 use codex_analytics::AppServerRpcTransport;
 use codex_app_server_protocol::ClientNotification;
@@ -125,6 +127,7 @@ pub(crate) struct MessageProcessor {
     thread_goal_processor: ThreadGoalRequestProcessor,
     thread_processor: ThreadRequestProcessor,
     turn_processor: TurnRequestProcessor,
+    workflow_processor: WorkflowRequestProcessor,
     workflow_service: Option<Arc<codex_workflow_extension::WorkflowService>>,
     windows_sandbox_processor: WindowsSandboxRequestProcessor,
     request_serialization_queues: RequestSerializationQueues,
@@ -268,6 +271,9 @@ impl MessageProcessor {
                 workflow_node_host_slot.clone(),
             ))
         });
+        let workflow_subscriptions = workflow_service.as_ref().map(|service| {
+            WorkflowSubscriptions::new(service.store().clone(), Arc::clone(&outgoing))
+        });
         let workflow_service_for_extensions = workflow_service.clone();
         let session_source_for_workflow = session_source.clone();
         let thread_manager = Arc::new_cyclic(|thread_manager| {
@@ -339,6 +345,7 @@ impl MessageProcessor {
                             thread_watch_manager: thread_watch_manager.clone(),
                             thread_list_state_permit: Arc::clone(&thread_list_state_permit),
                             skills_watcher: Arc::clone(&skills_watcher),
+                            workflow_subscriptions: workflow_subscriptions.clone(),
                         },
                     )))
         {
@@ -538,6 +545,11 @@ impl MessageProcessor {
             Arc::clone(&config),
             config_manager,
         );
+        let workflow_processor = WorkflowRequestProcessor::new(
+            Arc::clone(&config),
+            workflow_service.clone(),
+            workflow_subscriptions,
+        );
 
         Self {
             outgoing,
@@ -563,6 +575,7 @@ impl MessageProcessor {
             thread_goal_processor,
             thread_processor,
             turn_processor,
+            workflow_processor,
             workflow_service,
             windows_sandbox_processor,
             request_serialization_queues,
@@ -802,6 +815,9 @@ impl MessageProcessor {
             .connection_closed(connection_id)
             .await;
         self.thread_processor.connection_closed(connection_id).await;
+        self.workflow_processor
+            .connection_closed(connection_id)
+            .await;
     }
 
     pub(crate) fn subscribe_running_assistant_turn_count(&self) -> watch::Receiver<usize> {
@@ -1167,6 +1183,67 @@ impl MessageProcessor {
                     .thread_goal_clear(request_id.clone(), params)
                     .await
             }
+            ClientRequest::WorkflowList { .. } => self
+                .workflow_processor
+                .list()
+                .await
+                .map(|response| Some(response.into())),
+            ClientRequest::WorkflowRun { params, .. } => self
+                .workflow_processor
+                .run(connection_id, params)
+                .await
+                .map(|response| Some(response.into())),
+            ClientRequest::WorkflowRunList { params, .. } => self
+                .workflow_processor
+                .list_runs(params)
+                .await
+                .map(|response| Some(response.into())),
+            ClientRequest::WorkflowRunRead { params, .. } => self
+                .workflow_processor
+                .read(params)
+                .await
+                .map(|response| Some(response.into())),
+            ClientRequest::WorkflowRunResume { params, .. } => self
+                .workflow_processor
+                .resume(params)
+                .await
+                .map(|response| Some(response.into())),
+            ClientRequest::WorkflowRunCancel { params, .. } => self
+                .workflow_processor
+                .cancel(params)
+                .await
+                .map(|response| Some(response.into())),
+            ClientRequest::WorkflowRunSubscribe { params, .. } => {
+                let node_threads = params.node_threads;
+                let response = self
+                    .workflow_processor
+                    .subscribe(connection_id, params)
+                    .await?;
+                if node_threads == codex_app_server_protocol::NodeThreadSubscription::Include {
+                    for thread_id in response
+                        .run
+                        .nodes
+                        .iter()
+                        .filter_map(|node| node.thread_id.as_deref())
+                        .filter_map(|thread_id| ThreadId::from_string(thread_id).ok())
+                    {
+                        self.thread_processor
+                            .try_attach_thread_listener(thread_id, vec![connection_id])
+                            .await;
+                    }
+                }
+                Ok(Some(response.into()))
+            }
+            ClientRequest::WorkflowRunUnsubscribe { params, .. } => self
+                .workflow_processor
+                .unsubscribe(connection_id, params)
+                .await
+                .map(|response| Some(response.into())),
+            ClientRequest::WorkflowInteractionRespond { params, .. } => self
+                .workflow_processor
+                .respond(params)
+                .await
+                .map(|response| Some(response.into())),
             ClientRequest::ThreadMetadataUpdate { params, .. } => {
                 self.thread_processor.thread_metadata_update(params).await
             }

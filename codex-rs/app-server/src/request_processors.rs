@@ -519,6 +519,7 @@ mod token_usage_replay;
 mod turn_processor;
 mod windows_sandbox_processor;
 mod workflow_node_host;
+mod workflow_processor;
 
 pub(crate) use account_processor::AccountRequestProcessor;
 pub(crate) use apps_processor::AppsRequestProcessor;
@@ -544,6 +545,7 @@ pub(crate) use turn_processor::TurnRequestProcessor;
 pub(crate) use windows_sandbox_processor::WindowsSandboxRequestProcessor;
 pub(crate) use workflow_node_host::AppServerWorkflowNodeHost;
 pub(crate) use workflow_node_host::AppServerWorkflowNodeHostArgs;
+pub(crate) use workflow_processor::WorkflowRequestProcessor;
 
 use crate::error_code::internal_error;
 use crate::error_code::invalid_request;

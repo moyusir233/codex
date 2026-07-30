@@ -73,6 +73,7 @@ use crate::skills_watcher::SkillsWatcher;
 use crate::thread_state::ThreadStateManager;
 use crate::thread_state::wait_for_terminal_turn;
 use crate::thread_status::ThreadWatchManager;
+use crate::workflow_subscriptions::WorkflowSubscriptions;
 
 use super::ListenerTaskContext;
 use super::ensure_listener_task_running;
@@ -83,6 +84,7 @@ pub(crate) struct AppServerWorkflowNodeHost {
     config: Arc<Config>,
     session_source: SessionSource,
     listener_task_context: ListenerTaskContext,
+    workflow_subscriptions: Option<WorkflowSubscriptions>,
 }
 
 pub(crate) struct AppServerWorkflowNodeHostArgs {
@@ -96,6 +98,7 @@ pub(crate) struct AppServerWorkflowNodeHostArgs {
     pub thread_watch_manager: ThreadWatchManager,
     pub thread_list_state_permit: Arc<tokio::sync::Semaphore>,
     pub skills_watcher: Arc<SkillsWatcher>,
+    pub workflow_subscriptions: Option<WorkflowSubscriptions>,
 }
 
 impl AppServerWorkflowNodeHost {
@@ -117,6 +120,7 @@ impl AppServerWorkflowNodeHost {
             config: args.config,
             session_source: args.session_source,
             listener_task_context,
+            workflow_subscriptions: args.workflow_subscriptions,
         }
     }
 
@@ -134,6 +138,7 @@ impl AppServerWorkflowNodeHost {
             .default_environment_selections(&config.cwd);
         let mut thread_extension_init = ExtensionDataInit::new();
         let thread_source = request.binding.thread_source();
+        let run_id = request.binding.run_id.to_string();
         thread_extension_init.insert(WorkflowNodeLaunch {
             binding: request.binding,
             spec: request.spec,
@@ -183,6 +188,18 @@ impl AppServerWorkflowNodeHost {
                 .release_internal_observer(thread_id)
                 .await;
             return Err(NodeHostError::Host(error.message));
+        }
+        if let Some(subscriptions) = &self.workflow_subscriptions {
+            for connection_id in subscriptions.connections_including_nodes(&run_id).await {
+                self.listener_task_context
+                    .thread_state_manager
+                    .try_ensure_connection_subscribed(
+                        thread_id,
+                        connection_id,
+                        /*experimental_raw_events*/ false,
+                    )
+                    .await;
+            }
         }
         Ok(MaterializedNode { thread_id })
     }

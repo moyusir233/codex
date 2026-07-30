@@ -122,6 +122,7 @@ pub enum ClientRequestSerializationScope {
     FuzzyFileSearchSession { session_id: String },
     FsWatch { watch_id: String },
     McpOauth { server_name: String },
+    WorkflowRun { run_id: String },
 }
 
 macro_rules! serialization_scope_expr {
@@ -187,6 +188,11 @@ macro_rules! serialization_scope_expr {
     ($actual_params:ident, mcp_oauth_server($params:ident . $field:ident)) => {
         Some(ClientRequestSerializationScope::McpOauth {
             server_name: $actual_params.$field.clone(),
+        })
+    };
+    ($actual_params:ident, workflow_run_id($params:ident . $field:ident)) => {
+        Some(ClientRequestSerializationScope::WorkflowRun {
+            run_id: $actual_params.$field.clone(),
         })
     };
 }
@@ -550,6 +556,60 @@ client_request_definitions! {
         params: v2::ThreadGoalClearParams,
         serialization: thread_id(params.thread_id),
         response: v2::ThreadGoalClearResponse,
+    },
+    #[experimental("workflow/list")]
+    WorkflowList => "workflow/list" {
+        params: v2::WorkflowListParams,
+        serialization: None,
+        response: v2::WorkflowListResponse,
+    },
+    #[experimental("workflow/run")]
+    WorkflowRun => "workflow/run" {
+        params: v2::WorkflowRunParams,
+        serialization: global("workflow-run"),
+        response: v2::WorkflowRunResponse,
+    },
+    #[experimental("workflowRun/list")]
+    WorkflowRunList => "workflowRun/list" {
+        params: v2::WorkflowRunListParams,
+        serialization: None,
+        response: v2::WorkflowRunListResponse,
+    },
+    #[experimental("workflowRun/read")]
+    WorkflowRunRead => "workflowRun/read" {
+        params: v2::WorkflowRunReadParams,
+        serialization: workflow_run_id(params.run_id),
+        response: v2::WorkflowRunReadResponse,
+    },
+    #[experimental("workflowRun/resume")]
+    WorkflowRunResume => "workflowRun/resume" {
+        params: v2::WorkflowRunResumeParams,
+        serialization: workflow_run_id(params.run_id),
+        response: v2::WorkflowRunResumeResponse,
+    },
+    #[experimental("workflowRun/cancel")]
+    WorkflowRunCancel => "workflowRun/cancel" {
+        params: v2::WorkflowRunCancelParams,
+        serialization: workflow_run_id(params.run_id),
+        response: v2::WorkflowRunCancelResponse,
+    },
+    #[experimental("workflowRun/subscribe")]
+    WorkflowRunSubscribe => "workflowRun/subscribe" {
+        params: v2::WorkflowRunSubscribeParams,
+        serialization: workflow_run_id(params.run_id),
+        response: v2::WorkflowRunSubscribeResponse,
+    },
+    #[experimental("workflowRun/unsubscribe")]
+    WorkflowRunUnsubscribe => "workflowRun/unsubscribe" {
+        params: v2::WorkflowRunUnsubscribeParams,
+        serialization: workflow_run_id(params.run_id),
+        response: v2::WorkflowRunUnsubscribeResponse,
+    },
+    #[experimental("workflowInteraction/respond")]
+    WorkflowInteractionRespond => "workflowInteraction/respond" {
+        params: v2::WorkflowInteractionRespondParams,
+        serialization: global("workflow-interaction"),
+        response: v2::WorkflowInteractionRespondResponse,
     },
     ThreadMetadataUpdate => "thread/metadata/update" {
         params: v2::ThreadMetadataUpdateParams,
@@ -1623,6 +1683,16 @@ server_notification_definitions! {
     ThreadNameUpdated => "thread/name/updated" (v2::ThreadNameUpdatedNotification),
     ThreadGoalUpdated => "thread/goal/updated" (v2::ThreadGoalUpdatedNotification),
     ThreadGoalCleared => "thread/goal/cleared" (v2::ThreadGoalClearedNotification),
+    #[experimental("workflowRun/updated")]
+    WorkflowRunUpdated => "workflowRun/updated" (v2::WorkflowRunUpdatedNotification),
+    #[experimental("workflowNode/updated")]
+    WorkflowNodeUpdated => "workflowNode/updated" (v2::WorkflowNodeUpdatedNotification),
+    #[experimental("workflowInteraction/requested")]
+    WorkflowInteractionRequested => "workflowInteraction/requested" (v2::WorkflowInteractionRequestedNotification),
+    #[experimental("workflowInteraction/resolved")]
+    WorkflowInteractionResolved => "workflowInteraction/resolved" (v2::WorkflowInteractionResolvedNotification),
+    #[experimental("workflowArtifact/created")]
+    WorkflowArtifactCreated => "workflowArtifact/created" (v2::WorkflowArtifactCreatedNotification),
     #[experimental("thread/settings/updated")]
     ThreadSettingsUpdated => "thread/settings/updated" (v2::ThreadSettingsUpdatedNotification),
     ThreadTokenUsageUpdated => "thread/tokenUsage/updated" (v2::ThreadTokenUsageUpdatedNotification),

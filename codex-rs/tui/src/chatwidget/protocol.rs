@@ -192,6 +192,11 @@ impl ChatWidget {
                 }
             }
             ServerNotification::ServerRequestResolved(_)
+            | ServerNotification::WorkflowRunUpdated(_)
+            | ServerNotification::WorkflowNodeUpdated(_)
+            | ServerNotification::WorkflowInteractionRequested(_)
+            | ServerNotification::WorkflowInteractionResolved(_)
+            | ServerNotification::WorkflowArtifactCreated(_)
             | ServerNotification::AccountUpdated(_)
             | ServerNotification::AccountRateLimitsUpdated(_)
             | ServerNotification::ThreadStarted(_)
