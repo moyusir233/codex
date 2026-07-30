@@ -447,14 +447,9 @@ impl PromptReviewCapability for LivePromptReviewCapability {
             }
             let mut reviewers = Vec::new();
             while let Some(result) = pending.join_next().await {
-                reviewers.push(
-                    result
-                        .map_err(|error| {
-                            WorkflowError::definition(format!(
-                                "reviewer task failed to join: {error}"
-                            ))
-                        })??,
-                );
+                reviewers.push(result.map_err(|error| {
+                    WorkflowError::definition(format!("reviewer task failed to join: {error}"))
+                })??);
             }
             reviewers.sort_by(|left, right| left.1.cmp(&right.1));
             let review_text = reviewers
@@ -524,10 +519,7 @@ impl PromptReviewCapability for LivePromptReviewCapability {
             Ok(PromptReviewReview {
                 planner_node_id: planner_node_id.to_string(),
                 planner_thread_id,
-                reviewer_node_ids: reviewers
-                    .iter()
-                    .map(|(id, _, _)| id.to_string())
-                    .collect(),
+                reviewer_node_ids: reviewers.iter().map(|(id, _, _)| id.to_string()).collect(),
                 reviewer_thread_ids: reviewers
                     .iter()
                     .map(|(_, thread, _)| thread.clone())
@@ -736,8 +728,7 @@ fn render_variables(draft: &Value, prompt_key: &str) -> BTreeMap<String, String>
 fn correlation(prepared: &PromptReviewPrepared) -> Result<FornaxSpanCorrelation, WorkflowError> {
     Ok(FornaxSpanCorrelation {
         span_handle_id: Uuid::parse_str(&prepared.span_handle_id).map_err(definition_error)?,
-        trace_context_id: Uuid::parse_str(&prepared.trace_context_id)
-            .map_err(definition_error)?,
+        trace_context_id: Uuid::parse_str(&prepared.trace_context_id).map_err(definition_error)?,
         trace_id: prepared.trace_id.clone(),
         span_id: prepared.root_span_id.clone(),
     })
