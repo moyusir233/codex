@@ -7,6 +7,7 @@
 pub mod api;
 #[doc(hidden)]
 pub mod feasibility;
+pub mod registry;
 
 pub use api::ArgumentError;
 pub use api::EffectKey;
@@ -30,3 +31,9 @@ pub use api::WorkflowStability;
 pub use api::WorkflowState;
 pub use api::WorkflowTransition;
 pub use api::WorkflowVersion;
+pub use registry::RegistryError;
+pub use registry::WorkflowCheckpoint;
+pub use registry::WorkflowDefinition;
+pub use registry::WorkflowDefinitionMetadata;
+pub use registry::WorkflowRegistry;
+pub use registry::WorkflowRegistryBuilder;
