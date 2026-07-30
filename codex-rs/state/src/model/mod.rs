@@ -46,6 +46,7 @@ pub use workflow::WorkflowFornaxTraceRecord;
 pub use workflow::WorkflowFornaxTraceState;
 pub use workflow::WorkflowInteractionRecord;
 pub use workflow::WorkflowInteractionState;
+pub use workflow::WorkflowLarkInteractionRecord;
 pub use workflow::WorkflowLease;
 pub use workflow::WorkflowNodeAttemptCreate;
 pub use workflow::WorkflowNodeAttemptRecord;

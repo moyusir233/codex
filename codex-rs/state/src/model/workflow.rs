@@ -434,6 +434,23 @@ pub struct WorkflowInteractionRecord {
     pub updated_at_ms: i64,
 }
 
+/// Durable routing and polling correlations for one Lark-backed interaction.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkflowLarkInteractionRecord {
+    pub interaction_id: String,
+    pub run_id: String,
+    pub effect_key: String,
+    pub request_hash: String,
+    pub chat_id: String,
+    pub thread_id: Option<String>,
+    pub request_message_id: Option<String>,
+    pub correlation_token: String,
+    pub allowed_senders: Vec<String>,
+    pub watermark_ms: i64,
+    pub poll_page_token: Option<String>,
+    pub updated_at_ms: i64,
+}
+
 /// Classification attached to a durable workflow artifact manifest.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WorkflowArtifactClassification {
