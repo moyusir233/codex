@@ -65,7 +65,14 @@ pub use network_proxy_loader::MtimeConfigReloader;
 pub use network_proxy_loader::build_network_proxy_state;
 pub use network_proxy_loader::build_network_proxy_state_and_reloader;
 mod original_image_detail;
+mod prepared_user_turn;
 pub use codex_mcp::SandboxState;
+#[doc(hidden)]
+pub use prepared_user_turn::PreparedUserTurn;
+#[doc(hidden)]
+pub use prepared_user_turn::PreparedUserTurnError;
+#[doc(hidden)]
+pub use prepared_user_turn::PreparedUserTurnSubmission;
 mod mcp_openai_file;
 mod mcp_tool_call;
 pub(crate) mod mention_syntax;

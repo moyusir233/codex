@@ -1,6 +1,9 @@
 use crate::agent::AgentStatus;
 use crate::config::ConstraintResult;
 use crate::elicitation::ElicitationRegistration;
+use crate::prepared_user_turn::PreparedUserTurn;
+use crate::prepared_user_turn::PreparedUserTurnRegistry;
+use crate::prepared_user_turn::PreparedUserTurnSubmission;
 use crate::session::Codex;
 use crate::session::SessionSettingsUpdate;
 use crate::session::SteerInputError;
@@ -53,6 +56,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tokio::sync::Semaphore;
 use tokio::sync::watch;
 
 use codex_rollout::state_db::StateDbHandle;
@@ -164,6 +168,8 @@ pub struct CodexThread {
     pub(crate) session_source: SessionSource,
     session_configured: SessionConfiguredEvent,
     rollout_path: Option<PathBuf>,
+    prepared_user_turns: Mutex<PreparedUserTurnRegistry>,
+    prepared_user_turn_submission_gate: Semaphore,
     out_of_band_elicitations: Mutex<OutOfBandElicitations>,
 }
 
@@ -189,12 +195,15 @@ impl CodexThread {
         session_configured: SessionConfiguredEvent,
         rollout_path: Option<PathBuf>,
         session_source: SessionSource,
+        prepared_user_turns: PreparedUserTurnRegistry,
     ) -> Self {
         Self {
             codex,
             session_source,
             session_configured,
             rollout_path,
+            prepared_user_turns: Mutex::new(prepared_user_turns),
+            prepared_user_turn_submission_gate: Semaphore::new(1),
             out_of_band_elicitations: Mutex::new(OutOfBandElicitations::default()),
         }
     }
@@ -274,6 +283,66 @@ impl CodexThread {
         self.codex
             .submit_user_input_with_client_user_message_id(op, trace, client_user_message_id)
             .await
+    }
+
+    /// Queues one caller-prepared workflow turn through the normal submission loop.
+    ///
+    /// This feasibility API fences same-process retries and recognizes a matching
+    /// persisted user boundary after resume. The workflow control plane remains
+    /// responsible for durably recording the UUIDv7 and canonical input hash
+    /// before calling this method.
+    #[doc(hidden)]
+    pub async fn submit_prepared_user_turn(
+        &self,
+        op: Op,
+        trace: Option<W3cTraceContext>,
+        prepared: PreparedUserTurn,
+    ) -> CodexResult<PreparedUserTurnSubmission> {
+        if !matches!(op, Op::UserInput { .. }) {
+            return Err(CodexErr::InvalidRequest(
+                "prepared user turn requires Op::UserInput".to_string(),
+            ));
+        }
+        self.codex
+            .session
+            .services
+            .agent_control
+            .ensure_execution_capacity_for_op(self.session_configured.thread_id, &op)
+            .await?;
+        let _submission_permit = self
+            .prepared_user_turn_submission_gate
+            .acquire()
+            .await
+            .map_err(|err| {
+                CodexErr::InvalidRequest(format!(
+                    "prepared user turn submission gate is unavailable: {err}"
+                ))
+            })?;
+        let disposition = {
+            self.prepared_user_turns
+                .lock()
+                .await
+                .register(&prepared)
+                .map_err(|err| CodexErr::InvalidRequest(err.to_string()))?
+        };
+        if disposition != PreparedUserTurnSubmission::Queue {
+            return Ok(disposition);
+        }
+
+        let submission = Submission {
+            id: prepared.submission_id(),
+            op,
+            client_user_message_id: Some(prepared.marker()),
+            trace,
+        };
+        if let Err(err) = self.codex.submit_with_id(submission).await {
+            self.prepared_user_turns
+                .lock()
+                .await
+                .remove_queued(&prepared);
+            return Err(err);
+        }
+        Ok(PreparedUserTurnSubmission::Queue)
     }
 
     /// Persist whether this thread is eligible for future memory generation.

@@ -1538,6 +1538,8 @@ impl ThreadManagerState {
         supports_openai_form_elicitation: bool,
         user_shell_override: Option<crate::shell::Shell>,
     ) -> CodexResult<NewThread> {
+        let prepared_user_turns =
+            crate::prepared_user_turn::PreparedUserTurnRegistry::from_history(&initial_history);
         let is_resumed_thread = matches!(&initial_history, InitialHistory::Resumed(_));
         if let InitialHistory::Resumed(resumed) = &initial_history {
             let mut threads = self.threads.write().await;
@@ -1625,7 +1627,12 @@ impl ThreadManagerState {
         }))
         .await?;
         let new_thread = self
-            .finalize_thread_spawn(codex, thread_id, tracked_session_source)
+            .finalize_thread_spawn(
+                codex,
+                thread_id,
+                tracked_session_source,
+                prepared_user_turns,
+            )
             .await?;
         if is_resumed_thread {
             new_thread.thread.emit_thread_resume_lifecycle().await;
@@ -1638,6 +1645,7 @@ impl ThreadManagerState {
         codex: Codex,
         thread_id: ThreadId,
         session_source: SessionSource,
+        prepared_user_turns: crate::prepared_user_turn::PreparedUserTurnRegistry,
     ) -> CodexResult<NewThread> {
         let event = codex.next_event().await?;
         let session_configured = match event {
@@ -1658,6 +1666,7 @@ impl ThreadManagerState {
                     session_configured.clone(),
                     session_configured.rollout_path.clone(),
                     session_source,
+                    prepared_user_turns,
                 ));
                 e.insert(thread.clone());
                 return Ok(NewThread {
