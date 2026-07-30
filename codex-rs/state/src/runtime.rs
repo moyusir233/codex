@@ -17,12 +17,14 @@ use crate::THREAD_HISTORY_DB_FILENAME;
 use crate::ThreadMetadata;
 use crate::ThreadMetadataBuilder;
 use crate::ThreadsPage;
+use crate::WORKFLOWS_DB_FILENAME;
 use crate::apply_rollout_item;
 use crate::migrations::repair_legacy_recency_migration_version;
 use crate::migrations::runtime_goals_migrator;
 use crate::migrations::runtime_logs_migrator;
 use crate::migrations::runtime_memories_migrator;
 use crate::migrations::runtime_state_migrator;
+use crate::migrations::runtime_workflows_migrator;
 use crate::model::AgentJobRow;
 use crate::model::ThreadRow;
 use crate::model::anchor_from_item;
@@ -70,6 +72,7 @@ mod remote_control;
 #[cfg(test)]
 mod test_support;
 mod threads;
+mod workflows;
 
 pub use external_agent_config_imports::ExternalAgentConfigImportDetailsRecord;
 pub use external_agent_config_imports::ExternalAgentConfigImportFailureRecord;
@@ -88,6 +91,14 @@ pub use recovery::sqlite_error_detail_is_corruption;
 pub use recovery::sqlite_error_detail_is_lock;
 pub use remote_control::RemoteControlEnrollmentRecord;
 pub use threads::ThreadFilterOptions;
+pub use workflows::WorkflowEffectPlan;
+pub use workflows::WorkflowEffectPlanOutcome;
+pub use workflows::WorkflowInteractionPlan;
+pub use workflows::WorkflowInteractionPlanOutcome;
+pub use workflows::WorkflowRunTransition;
+pub use workflows::WorkflowStore;
+pub use workflows::WorkflowStoreError;
+pub use workflows::canonical_workflow_request_hash;
 
 // "Partition" is the retained-log-content bucket we cap at 10 MiB:
 // - one bucket per non-null thread_id
@@ -153,8 +164,22 @@ const THREAD_HISTORY_DB: RuntimeDbSpec = RuntimeDbSpec {
     migrate_phase: "migrate_thread_history",
 };
 
-const RUNTIME_DBS: [RuntimeDbSpec; 5] =
-    [STATE_DB, LOGS_DB, GOALS_DB, MEMORIES_DB, THREAD_HISTORY_DB];
+const WORKFLOWS_DB: RuntimeDbSpec = RuntimeDbSpec {
+    label: "workflows DB",
+    filename: WORKFLOWS_DB_FILENAME,
+    kind: DbKind::Workflows,
+    open_phase: "open_workflows",
+    migrate_phase: "migrate_workflows",
+};
+
+const RUNTIME_DBS: [RuntimeDbSpec; 6] = [
+    STATE_DB,
+    LOGS_DB,
+    GOALS_DB,
+    MEMORIES_DB,
+    THREAD_HISTORY_DB,
+    WORKFLOWS_DB,
+];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RuntimeDbPath {
@@ -170,6 +195,7 @@ pub struct StateRuntime {
     logs_pool: Arc<sqlx::SqlitePool>,
     thread_goals: GoalStore,
     memories: MemoryStore,
+    workflows: WorkflowStore,
     thread_updated_at_millis: Arc<AtomicI64>,
     thread_recency_at_millis: Arc<AtomicI64>,
 }
@@ -208,10 +234,12 @@ impl StateRuntime {
         let logs_migrator = runtime_logs_migrator();
         let goals_migrator = runtime_goals_migrator();
         let memories_migrator = runtime_memories_migrator();
+        let workflows_migrator = runtime_workflows_migrator();
         let state_path = STATE_DB.path(codex_home.as_path());
         let logs_path = LOGS_DB.path(codex_home.as_path());
         let goals_path = GOALS_DB.path(codex_home.as_path());
         let memories_path = MEMORIES_DB.path(codex_home.as_path());
+        let workflows_path = WORKFLOWS_DB.path(codex_home.as_path());
         let pool = match open_state_sqlite(&state_path, &state_migrator, telemetry_override).await {
             Ok(db) => Arc::new(db),
             Err(err) => {
@@ -254,6 +282,26 @@ impl StateRuntime {
                 return Err(err);
             }
         };
+        let workflows_pool =
+            match open_workflows_sqlite(&workflows_path, &workflows_migrator, telemetry_override)
+                .await
+            {
+                Ok(db) => Arc::new(db),
+                Err(err) => {
+                    warn!(
+                        "failed to open workflows db at {}: {err}",
+                        workflows_path.display()
+                    );
+                    close_sqlite_pools(&[
+                        pool.as_ref(),
+                        logs_pool.as_ref(),
+                        goals_pool.as_ref(),
+                        memories_pool.as_ref(),
+                    ])
+                    .await;
+                    return Err(err);
+                }
+            };
         let started = Instant::now();
         let backfill_state_result = ensure_backfill_state_row_in_pool(pool.as_ref()).await;
         crate::telemetry::record_init_result(
@@ -269,6 +317,7 @@ impl StateRuntime {
                 logs_pool.as_ref(),
                 goals_pool.as_ref(),
                 memories_pool.as_ref(),
+                workflows_pool.as_ref(),
             ])
             .await;
             return Err(err);
@@ -297,6 +346,7 @@ impl StateRuntime {
                         logs_pool.as_ref(),
                         goals_pool.as_ref(),
                         memories_pool.as_ref(),
+                        workflows_pool.as_ref(),
                     ])
                     .await;
                     return Err(err);
@@ -307,6 +357,7 @@ impl StateRuntime {
         let runtime = Arc::new(Self {
             thread_goals: GoalStore::new(Arc::clone(&goals_pool)),
             memories: MemoryStore::new(Arc::clone(&memories_pool), Arc::clone(&pool)),
+            workflows: WorkflowStore::new(Arc::clone(&workflows_pool)),
             pool,
             logs_pool,
             codex_home,
@@ -336,8 +387,14 @@ impl StateRuntime {
         &self.memories
     }
 
+    /// Return the durable workflow control-plane store.
+    pub fn workflows(&self) -> &WorkflowStore {
+        &self.workflows
+    }
+
     /// Close all SQLite pools and wait for outstanding pool workers to exit.
     pub async fn close(&self) {
+        self.workflows.close().await;
         self.memories.close().await;
         self.thread_goals.close().await;
         self.logs_pool.close().await;
@@ -412,6 +469,14 @@ async fn open_memories_sqlite(
     telemetry_override: Option<&dyn DbTelemetry>,
 ) -> anyhow::Result<SqlitePool> {
     open_sqlite(path, migrator, MEMORIES_DB, telemetry_override).await
+}
+
+async fn open_workflows_sqlite(
+    path: &Path,
+    migrator: &Migrator,
+    telemetry_override: Option<&dyn DbTelemetry>,
+) -> anyhow::Result<SqlitePool> {
+    open_sqlite(path, migrator, WORKFLOWS_DB, telemetry_override).await
 }
 
 async fn open_sqlite(
@@ -524,6 +589,14 @@ pub fn thread_history_db_filename() -> String {
 
 pub fn thread_history_db_path(codex_home: &Path) -> PathBuf {
     THREAD_HISTORY_DB.path(codex_home)
+}
+
+pub fn workflows_db_filename() -> String {
+    WORKFLOWS_DB.filename.to_string()
+}
+
+pub fn workflows_db_path(codex_home: &Path) -> PathBuf {
+    WORKFLOWS_DB.path(codex_home)
 }
 
 pub fn runtime_db_paths(codex_home: &Path) -> Vec<RuntimeDbPath> {
@@ -744,6 +817,8 @@ mod tests {
             "migrate_goals",
             "open_memories",
             "migrate_memories",
+            "open_workflows",
+            "migrate_workflows",
             "ensure_backfill_state",
             "post_init_query",
         ]
