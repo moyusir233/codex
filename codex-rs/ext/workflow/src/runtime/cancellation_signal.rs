@@ -16,7 +16,7 @@ impl CancellationSignals {
         let mut signals = self
             .signals
             .lock()
-            .unwrap_or_else(|error| error.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let signal = signals
             .entry(run_id.to_string())
             .or_insert_with(|| WorkflowCancellation::new(requested))
@@ -34,7 +34,7 @@ impl CancellationSignals {
     pub(crate) fn release(&self, run_id: WorkflowRunId) {
         self.signals
             .lock()
-            .unwrap_or_else(|error| error.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .remove(&run_id.to_string());
     }
 }

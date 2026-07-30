@@ -309,18 +309,10 @@ impl WorkflowRegistryBuilder {
 }
 
 /// Immutable deterministic registry of reviewed workflow definitions.
+#[derive(Default)]
 pub struct WorkflowRegistry {
     definitions: BTreeMap<(WorkflowName, WorkflowVersion), WorkflowDefinition>,
     defaults: BTreeMap<WorkflowName, WorkflowVersion>,
-}
-
-impl Default for WorkflowRegistry {
-    fn default() -> Self {
-        Self {
-            definitions: BTreeMap::new(),
-            defaults: BTreeMap::new(),
-        }
-    }
 }
 
 impl WorkflowRegistry {

@@ -80,5 +80,7 @@ fn retry_delay(policy: &BackoffPolicy, attempt: u32, jitter_unit: u64) -> Durati
 
 fn deterministic_unit(value: &str) -> u64 {
     let digest = Sha256::digest(value.as_bytes());
-    u64::from_be_bytes(digest[..8].try_into().expect("SHA-256 prefix is 8 bytes"))
+    let mut prefix = [0_u8; 8];
+    prefix.copy_from_slice(&digest[..8]);
+    u64::from_be_bytes(prefix)
 }
