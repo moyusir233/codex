@@ -22,12 +22,14 @@ use crate::provider::SkillListQuery;
 use crate::provider::SkillReadRequest;
 use crate::shadow_selection_experiment::ShadowSelectionTurnState;
 use crate::sources::SkillProviders;
+use crate::visibility::SkillVisibilityPolicy;
 
 const MAX_CACHED_ORCHESTRATOR_RESOURCES: usize = 100;
 const MAX_CACHED_ORCHESTRATOR_CONTENT_BYTES: usize = 8 * 1024 * 1024;
 
 pub(crate) struct SkillsThreadState {
     config: Mutex<SkillsExtensionConfig>,
+    pub(crate) visibility_policy: SkillVisibilityPolicy,
     orchestrator_skills_available: bool,
     executor_cache: Mutex<Vec<CachedExecutorCatalog>>,
     orchestrator_cache: Mutex<Option<Arc<OrchestratorGenerationCache>>>,
@@ -35,9 +37,14 @@ pub(crate) struct SkillsThreadState {
 }
 
 impl SkillsThreadState {
-    pub(crate) fn new(config: SkillsExtensionConfig, orchestrator_skills_available: bool) -> Self {
+    pub(crate) fn new(
+        config: SkillsExtensionConfig,
+        visibility_policy: SkillVisibilityPolicy,
+        orchestrator_skills_available: bool,
+    ) -> Self {
         Self {
             config: Mutex::new(config),
+            visibility_policy,
             orchestrator_skills_available,
             executor_cache: Mutex::new(Vec::new()),
             orchestrator_cache: Mutex::new(None),
@@ -124,7 +131,8 @@ impl SkillsThreadState {
         mcp_resources: Option<&McpResourceClient>,
         initialize: impl Future<Output = Result<SkillCatalog, SkillProviderError>> + Send,
     ) -> SkillCatalog {
-        self.orchestrator_cache(mcp_resources)
+        let mut catalog = self
+            .orchestrator_cache(mcp_resources)
             .catalog
             .get_or_init(|| async {
                 initialize.await.unwrap_or_else(|err| SkillCatalog {
@@ -133,7 +141,9 @@ impl SkillsThreadState {
                 })
             })
             .await
-            .clone()
+            .clone();
+        self.visibility_policy.apply(&mut catalog);
+        catalog
     }
 
     pub(crate) async fn read_skill(
@@ -141,6 +151,14 @@ impl SkillsThreadState {
         providers: &SkillProviders,
         request: SkillReadRequest,
     ) -> SkillProviderResult<SkillReadResult> {
+        if !self
+            .visibility_policy
+            .allows(&request.authority, &request.package)
+        {
+            return Err(SkillProviderError::new(
+                "skill is disabled by the thread visibility policy",
+            ));
+        }
         if request.authority.kind != SkillSourceKind::Orchestrator {
             return providers.read(request).await;
         }
@@ -210,7 +228,8 @@ impl SkillsThreadState {
             return cached.catalog.clone();
         }
 
-        let discovered = providers.list_executor_for_turn(query).await;
+        let mut discovered = providers.list_executor_for_turn(query).await;
+        self.visibility_policy.apply(&mut discovered);
         let mut cache = self
             .executor_cache
             .lock()

@@ -52,6 +52,7 @@ use crate::state::ExecutorSkillsStepState;
 use crate::state::SkillsThreadState;
 use crate::state::SkillsTurnState;
 use crate::tools::skill_tools;
+use crate::visibility::SkillVisibilityPolicy;
 use crate::world_state::executor_skills_world_state_section;
 
 struct SkillsExtension<C> {
@@ -73,6 +74,12 @@ where
                 .any(|environment| environment.environment_id == LOCAL_ENVIRONMENT_ID);
             input.thread_store.insert(SkillsThreadState::new(
                 (self.config_from_host)(input.config),
+                input
+                    .thread_store
+                    .get::<SkillVisibilityPolicy>()
+                    .as_deref()
+                    .cloned()
+                    .unwrap_or_default(),
                 orchestrator_skills_available,
             ));
         })
@@ -97,6 +104,11 @@ where
             let orchestrator_skills_available = true;
             thread_store.insert(SkillsThreadState::new(
                 next_config,
+                thread_store
+                    .get::<SkillVisibilityPolicy>()
+                    .as_deref()
+                    .cloned()
+                    .unwrap_or_default(),
                 orchestrator_skills_available,
             ));
         }
@@ -406,6 +418,7 @@ impl<C> SkillsExtension<C> {
                 .await;
             catalog.extend(orchestrator_catalog);
         }
+        thread_state.visibility_policy.apply(&mut catalog);
         catalog
     }
 

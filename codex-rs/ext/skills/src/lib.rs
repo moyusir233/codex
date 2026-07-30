@@ -10,6 +10,7 @@ mod shadow_selection_experiment;
 mod sources;
 mod state;
 mod tools;
+mod visibility;
 mod world_state;
 
 pub use config::SkillsExtensionConfig;
@@ -22,3 +23,5 @@ pub use provider::OrchestratorSkillProvider;
 pub use provider::SkillProvider;
 pub use sources::SkillProviderSource;
 pub use sources::SkillProviders;
+pub use visibility::SkillIdentity;
+pub use visibility::SkillVisibilityPolicy;
