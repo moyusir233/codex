@@ -127,10 +127,7 @@ pub fn resolve_skill_identities(
             _ => {
                 return Err(SkillIdentityResolutionError::Ambiguous {
                     matcher: matcher.clone(),
-                    matches: matches
-                        .into_iter()
-                        .map(SkillIdentity::from)
-                        .collect(),
+                    matches: matches.into_iter().map(SkillIdentity::from).collect(),
                 });
             }
         };
