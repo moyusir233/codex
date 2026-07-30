@@ -27,6 +27,17 @@ pub enum WorkflowEffectPlanOutcome {
     Existing(WorkflowEffectRecord),
 }
 
+/// Conditional state transition for one journaled effect.
+pub struct WorkflowEffectUpdate {
+    pub run_id: String,
+    pub effect_key: String,
+    pub expected_state: WorkflowEffectState,
+    pub state: WorkflowEffectState,
+    pub response: Option<Value>,
+    pub error_code: Option<String>,
+    pub updated_at_ms: i64,
+}
+
 impl WorkflowStore {
     /// Plans an effect exactly once by `(run_id, effect_key)`.
     pub async fn plan_effect(
@@ -115,16 +126,14 @@ WHERE run_id = ? AND effect_key = ?
     /// Advances an effect journal state without changing its identity or request.
     pub async fn update_effect(
         &self,
-        run_id: &str,
-        effect_key: &str,
-        expected_state: WorkflowEffectState,
-        state: WorkflowEffectState,
-        response: Option<&Value>,
-        error_code: Option<&str>,
-        updated_at_ms: i64,
+        update: WorkflowEffectUpdate,
     ) -> Result<bool, WorkflowStoreError> {
         let mut tx = self.pool().begin().await?;
-        let response_json = response.map(serde_json::to_string).transpose()?;
+        let response_json = update
+            .response
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?;
         let result = sqlx::query(
             r#"
 UPDATE workflow_effects
@@ -132,23 +141,26 @@ SET state = ?, response_json = ?, error_code = ?, updated_at_ms = ?
 WHERE run_id = ? AND effect_key = ? AND state = ?
             "#,
         )
-        .bind(state.as_str())
+        .bind(update.state.as_str())
         .bind(response_json)
-        .bind(error_code)
-        .bind(updated_at_ms)
-        .bind(run_id)
-        .bind(effect_key)
-        .bind(expected_state.as_str())
+        .bind(&update.error_code)
+        .bind(update.updated_at_ms)
+        .bind(&update.run_id)
+        .bind(&update.effect_key)
+        .bind(update.expected_state.as_str())
         .execute(&mut *tx)
         .await?;
         if result.rows_affected() == 1 {
             append_event(
                 &mut tx,
-                run_id,
+                &update.run_id,
                 "effect.updated",
-                Some(effect_key),
-                &json!({"state": state.as_str(), "error_code": error_code}),
-                updated_at_ms,
+                Some(&update.effect_key),
+                &json!({
+                    "state": update.state.as_str(),
+                    "error_code": update.error_code,
+                }),
+                update.updated_at_ms,
             )
             .await?;
             tx.commit().await?;

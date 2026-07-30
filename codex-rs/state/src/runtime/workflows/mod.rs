@@ -10,6 +10,7 @@ mod tests;
 
 pub use effects::WorkflowEffectPlan;
 pub use effects::WorkflowEffectPlanOutcome;
+pub use effects::WorkflowEffectUpdate;
 pub use effects::canonical_workflow_request_hash;
 pub use interactions::WorkflowInteractionPlan;
 pub use interactions::WorkflowInteractionPlanOutcome;

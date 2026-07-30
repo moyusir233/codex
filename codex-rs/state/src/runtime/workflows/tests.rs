@@ -7,6 +7,7 @@ use crate::StateRuntime;
 use crate::WorkflowEffectPlan;
 use crate::WorkflowEffectPlanOutcome;
 use crate::WorkflowEffectState;
+use crate::WorkflowEffectUpdate;
 use crate::WorkflowInteractionPlan;
 use crate::WorkflowInteractionPlanOutcome;
 use crate::WorkflowInteractionState;
@@ -197,29 +198,29 @@ async fn workflow_graph_dedupes_journals_and_replays_events_in_order() {
     ));
     assert!(
         store
-            .update_effect(
-                "run-graph",
-                "notify",
-                WorkflowEffectState::Planned,
-                WorkflowEffectState::Dispatched,
-                None,
-                None,
-                104,
-            )
+            .update_effect(WorkflowEffectUpdate {
+                run_id: "run-graph".to_string(),
+                effect_key: "notify".to_string(),
+                expected_state: WorkflowEffectState::Planned,
+                state: WorkflowEffectState::Dispatched,
+                response: None,
+                error_code: None,
+                updated_at_ms: 104,
+            })
             .await
             .expect("advance effect state")
     );
     assert!(
         !store
-            .update_effect(
-                "run-graph",
-                "notify",
-                WorkflowEffectState::Planned,
-                WorkflowEffectState::Applied,
-                None,
-                None,
-                105,
-            )
+            .update_effect(WorkflowEffectUpdate {
+                run_id: "run-graph".to_string(),
+                effect_key: "notify".to_string(),
+                expected_state: WorkflowEffectState::Planned,
+                state: WorkflowEffectState::Applied,
+                response: None,
+                error_code: None,
+                updated_at_ms: 105,
+            })
             .await
             .expect("reject stale effect state")
     );

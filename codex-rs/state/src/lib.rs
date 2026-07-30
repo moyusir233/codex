@@ -86,6 +86,7 @@ pub use runtime::RuntimeDbPath;
 pub use runtime::ThreadFilterOptions;
 pub use runtime::WorkflowEffectPlan;
 pub use runtime::WorkflowEffectPlanOutcome;
+pub use runtime::WorkflowEffectUpdate;
 pub use runtime::WorkflowInteractionPlan;
 pub use runtime::WorkflowInteractionPlanOutcome;
 pub use runtime::WorkflowRunTransition;

@@ -93,6 +93,7 @@ pub use remote_control::RemoteControlEnrollmentRecord;
 pub use threads::ThreadFilterOptions;
 pub use workflows::WorkflowEffectPlan;
 pub use workflows::WorkflowEffectPlanOutcome;
+pub use workflows::WorkflowEffectUpdate;
 pub use workflows::WorkflowInteractionPlan;
 pub use workflows::WorkflowInteractionPlanOutcome;
 pub use workflows::WorkflowRunTransition;
