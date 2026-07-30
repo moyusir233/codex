@@ -5,6 +5,7 @@ use std::sync::OnceLock;
 
 use codex_protocol::ThreadId;
 
+use crate::CancellationReason;
 use crate::NodeInput;
 use crate::NodeSpec;
 use crate::NodeTurnResult;
@@ -32,6 +33,8 @@ pub trait WorkflowNodeHost: Send + Sync {
     fn status(&self, thread_id: ThreadId) -> NodeHostFuture<'_, NodeRuntimeStatus>;
 
     fn interrupt(&self, thread_id: ThreadId, turn_id: String) -> NodeHostFuture<'_, ()>;
+
+    fn cancel(&self, thread_id: ThreadId, reason: CancellationReason) -> NodeHostFuture<'_, ()>;
 
     fn shutdown_runtime(
         &self,

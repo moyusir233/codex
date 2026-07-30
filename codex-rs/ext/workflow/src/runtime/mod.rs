@@ -1,4 +1,5 @@
 mod node_host;
+mod service;
 mod store;
 
 pub use node_host::AwaitTurnRequest;
@@ -16,6 +17,10 @@ pub use node_host::SteerTurnRequest;
 pub use node_host::SubmittedTurn;
 pub use node_host::WorkflowNodeHost;
 pub use node_host::WorkflowNodeHostSlot;
+pub use service::NodeClient;
+pub use service::NodeError;
+pub use service::NodeHandle;
+pub use service::WorkflowService;
 pub use store::WorkflowArtifactStore;
 pub use store::WorkflowArtifactStoreError;
 pub use store::WorkflowArtifactWrite;

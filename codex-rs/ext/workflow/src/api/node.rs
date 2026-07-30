@@ -318,6 +318,28 @@ pub enum NodeTurnStatus {
     Failed,
 }
 
+/// Why workflow execution requested cancellation of a node's active turn.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "kind", content = "detail")]
+pub enum CancellationReason {
+    WorkflowRequested,
+    DependencyFailed,
+    DeadlineExceeded,
+    Operator(String),
+}
+
+/// Same-thread turn request used by the explicit retry operation.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RetryRequest {
+    pub input: NodeInput,
+}
+
+impl RetryRequest {
+    pub fn same_thread(input: NodeInput) -> Self {
+        Self { input }
+    }
+}
+
 /// Normal persisted result of one node turn.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodeTurnResult {
