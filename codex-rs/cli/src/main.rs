@@ -57,6 +57,7 @@ mod remote_control_cmd;
 #[cfg(target_os = "windows")]
 mod sandbox_setup;
 mod state_db_recovery;
+mod workflow;
 #[cfg(not(windows))]
 mod wsl_paths;
 
@@ -66,6 +67,7 @@ use crate::plugin_cmd::PluginSubcommand;
 use crate::remote_control_cmd::RemoteControlCommand;
 use doctor::DoctorCommand;
 use state_db_recovery as local_state_db;
+use workflow::WorkflowCli;
 
 use codex_config::LoaderOverrides;
 use codex_core::build_models_manager;
@@ -128,6 +130,9 @@ enum Subcommand {
 
     /// Run a code review non-interactively.
     Review(ReviewCommand),
+
+    /// [experimental] Run a registered durable workflow.
+    Workflow(WorkflowCli),
 
     /// Manage login.
     Login(LoginCommand),
@@ -1036,6 +1041,33 @@ async fn cli_main(
             );
             codex_exec::run_main(exec_cli, arg0_paths.clone()).await?;
         }
+        Some(Subcommand::Workflow(workflow_cli)) => {
+            if workflow_cli.app_server_endpoint().is_some() && root_remote.is_some() {
+                anyhow::bail!("use either `workflow --app-server` or root `--remote`, not both");
+            }
+            let remote = workflow_cli
+                .app_server_endpoint()
+                .map(str::to_string)
+                .or(root_remote.clone());
+            let remote_endpoint =
+                resolve_remote_endpoint(remote, root_remote_auth_token_env.clone())?;
+            let loader_overrides =
+                loader_overrides_for_profile(interactive.config_profile_v2.as_ref())?;
+            let exit_code = workflow::run(
+                workflow_cli,
+                workflow::WorkflowContext {
+                    arg0_paths: arg0_paths.clone(),
+                    config_overrides: root_config_overrides,
+                    loader_overrides,
+                    strict_config: root_strict_config,
+                    remote_endpoint,
+                },
+            )
+            .await?;
+            if exit_code != 0 {
+                std::process::exit(i32::from(exit_code));
+            }
+        }
         Some(Subcommand::McpServer(McpServerCommand { strict_config })) => {
             reject_remote_mode_for_subcommand(
                 root_remote.as_deref(),
@@ -1658,6 +1690,7 @@ fn profile_v2_for_subcommand<'a>(
     match subcommand {
         Subcommand::Exec(_)
         | Subcommand::Review(_)
+        | Subcommand::Workflow(_)
         | Subcommand::Resume(_)
         | Subcommand::Archive(_)
         | Subcommand::Delete(_)
@@ -2109,6 +2142,7 @@ fn unsupported_subcommand_name_for_strict_config(
         None
         | Some(Subcommand::Exec(_))
         | Some(Subcommand::Review(_))
+        | Some(Subcommand::Workflow(_))
         | Some(Subcommand::McpServer(_))
         | Some(Subcommand::ExecServer(_))
         | Some(Subcommand::Resume(_))
