@@ -1,5 +1,21 @@
+mod node_host;
 mod store;
 
+pub use node_host::AwaitTurnRequest;
+pub use node_host::ConfirmedHistoryDeletion;
+pub use node_host::MaterializeNodeRequest;
+pub use node_host::MaterializedNode;
+pub use node_host::NodeHostBindError;
+pub use node_host::NodeHostError;
+pub use node_host::NodeHostFuture;
+pub use node_host::NodeRuntimeStatus;
+pub use node_host::PreparedTurnDisposition;
+pub use node_host::PreparedTurnRequest;
+pub use node_host::RuntimeShutdown;
+pub use node_host::SteerTurnRequest;
+pub use node_host::SubmittedTurn;
+pub use node_host::WorkflowNodeHost;
+pub use node_host::WorkflowNodeHostSlot;
 pub use store::WorkflowArtifactStore;
 pub use store::WorkflowArtifactStoreError;
 pub use store::WorkflowArtifactWrite;

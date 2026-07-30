@@ -2028,6 +2028,7 @@ dependencies = [
  "codex-utils-pty",
  "codex-web-search-extension",
  "codex-windows-sandbox",
+ "codex-workflow-extension",
  "core_test_support",
  "flate2",
  "futures",
@@ -4531,7 +4532,13 @@ name = "codex-workflow-extension"
 version = "0.0.0"
 dependencies = [
  "clap",
+ "codex-core",
+ "codex-extension-api",
+ "codex-protocol",
+ "codex-skills-extension",
  "codex-state",
+ "codex-thread-store",
+ "codex-utils-absolute-path",
  "pretty_assertions",
  "schemars 0.8.22",
  "semver",
@@ -4541,6 +4548,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "tracing",
  "uuid",
 ]
 
