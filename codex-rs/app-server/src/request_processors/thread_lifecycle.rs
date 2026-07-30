@@ -18,8 +18,8 @@ pub(super) struct ListenerTaskContext {
 
 struct UnloadingState {
     delay: Duration,
-    has_subscribers_rx: watch::Receiver<bool>,
-    has_subscribers: (bool, Instant),
+    has_observers_rx: watch::Receiver<bool>,
+    has_observers: (bool, Instant),
     thread_status_rx: watch::Receiver<ThreadStatus>,
     is_active: (bool, Instant),
 }
@@ -30,30 +30,30 @@ impl UnloadingState {
         thread_id: ThreadId,
         delay: Duration,
     ) -> Option<Self> {
-        let has_subscribers_rx = listener_task_context
+        let has_observers_rx = listener_task_context
             .thread_state_manager
-            .subscribe_to_has_connections(thread_id)
+            .subscribe_to_has_observers(thread_id)
             .await?;
         let thread_status_rx = listener_task_context
             .thread_watch_manager
             .subscribe(thread_id)
             .await?;
-        let has_subscribers = (*has_subscribers_rx.borrow(), Instant::now());
+        let has_observers = (*has_observers_rx.borrow(), Instant::now());
         let is_active = (
             matches!(*thread_status_rx.borrow(), ThreadStatus::Active { .. }),
             Instant::now(),
         );
         Some(Self {
             delay,
-            has_subscribers_rx,
-            has_subscribers,
+            has_observers_rx,
+            has_observers,
             thread_status_rx,
             is_active,
         })
     }
 
     fn unloading_target(&self) -> Option<Instant> {
-        match (self.has_subscribers, self.is_active) {
+        match (self.has_observers, self.is_active) {
             ((false, has_no_subscribers_since), (false, is_inactive_since)) => {
                 Some(std::cmp::max(has_no_subscribers_since, is_inactive_since) + self.delay)
             }
@@ -62,9 +62,9 @@ impl UnloadingState {
     }
 
     fn sync_receiver_values(&mut self) {
-        let has_subscribers = *self.has_subscribers_rx.borrow();
-        if self.has_subscribers.0 != has_subscribers {
-            self.has_subscribers = (has_subscribers, Instant::now());
+        let has_observers = *self.has_observers_rx.borrow();
+        if self.has_observers.0 != has_observers {
+            self.has_observers = (has_observers, Instant::now());
         }
 
         let is_active = matches!(*self.thread_status_rx.borrow(), ThreadStatus::Active { .. });
@@ -103,7 +103,7 @@ impl UnloadingState {
             };
             tokio::select! {
                 _ = unloading_sleep => return true,
-                changed = self.has_subscribers_rx.changed() => {
+                changed = self.has_observers_rx.changed() => {
                     if changed.is_err() {
                         return false;
                     }

@@ -238,10 +238,6 @@ impl ThreadState {
     }
 }
 
-#[expect(
-    dead_code,
-    reason = "Milestone 0 feasibility seam is consumed by the workflow node host in Milestone 3"
-)]
 pub(crate) async fn wait_for_terminal_turn(
     thread_state: &Arc<Mutex<ThreadState>>,
     turn_id: String,
@@ -441,6 +437,52 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn workflow_internal_retention_is_independent_from_client_subscriptions() {
+        let manager = ThreadStateManager::new();
+        let thread_id = ThreadId::new();
+        let connection_id = ConnectionId(17);
+        manager
+            .connection_initialized(connection_id, ConnectionCapabilities::default())
+            .await;
+        assert!(
+            manager
+                .try_add_connection_to_thread(thread_id, connection_id)
+                .await
+        );
+        let mut has_connections = manager
+            .subscribe_to_has_connections(thread_id)
+            .await
+            .expect("connection watcher");
+        let mut has_observers = manager
+            .subscribe_to_has_observers(thread_id)
+            .await
+            .expect("observer watcher");
+        assert!(*has_connections.borrow_and_update());
+        assert!(*has_observers.borrow_and_update());
+
+        manager.retain_internal_observer(thread_id).await;
+        assert!(
+            manager
+                .unsubscribe_connection_from_thread(thread_id, connection_id)
+                .await
+        );
+        has_connections
+            .changed()
+            .await
+            .expect("connection watcher remains open");
+        assert!(!*has_connections.borrow_and_update());
+        assert!(*has_observers.borrow_and_update());
+
+        assert!(manager.release_internal_observer(thread_id).await);
+        has_observers
+            .changed()
+            .await
+            .expect("observer watcher remains open");
+        assert!(!*has_observers.borrow_and_update());
+        assert!(!manager.release_internal_observer(thread_id).await);
+    }
+
     fn thread_settings(model: &str) -> ThreadSettings {
         ThreadSettings {
             cwd: AbsolutePathBuf::from_absolute_path("/tmp").expect("absolute path"),
@@ -473,6 +515,8 @@ struct ThreadEntry {
     state: Arc<Mutex<ThreadState>>,
     connection_ids: HashSet<ConnectionId>,
     has_connections_watcher: watch::Sender<bool>,
+    internal_retentions: usize,
+    has_observers_watcher: watch::Sender<bool>,
 }
 
 impl Default for ThreadEntry {
@@ -481,15 +525,22 @@ impl Default for ThreadEntry {
             state: Arc::new(Mutex::new(ThreadState::default())),
             connection_ids: HashSet::new(),
             has_connections_watcher: watch::channel(false).0,
+            internal_retentions: 0,
+            has_observers_watcher: watch::channel(false).0,
         }
     }
 }
 
 impl ThreadEntry {
-    fn update_has_connections(&self) {
+    fn update_observers(&self) {
         let _ = self.has_connections_watcher.send_if_modified(|current| {
             let prev = *current;
             *current = !self.connection_ids.is_empty();
+            prev != *current
+        });
+        let _ = self.has_observers_watcher.send_if_modified(|current| {
+            let prev = *current;
+            *current = !self.connection_ids.is_empty() || self.internal_retentions > 0;
             prev != *current
         });
     }
@@ -692,7 +743,7 @@ impl ThreadStateManager {
             }
             if let Some(thread_entry) = state.threads.get_mut(&thread_id) {
                 thread_entry.connection_ids.remove(&connection_id);
-                thread_entry.update_has_connections();
+                thread_entry.update_observers();
             }
         };
 
@@ -727,7 +778,7 @@ impl ThreadStateManager {
                 .insert(thread_id);
             let thread_entry = state.threads.entry(thread_id).or_default();
             thread_entry.connection_ids.insert(connection_id);
-            thread_entry.update_has_connections();
+            thread_entry.update_observers();
             thread_entry.state.clone()
         };
         {
@@ -755,7 +806,7 @@ impl ThreadStateManager {
             .insert(thread_id);
         let thread_entry = state.threads.entry(thread_id).or_default();
         thread_entry.connection_ids.insert(connection_id);
-        thread_entry.update_has_connections();
+        thread_entry.update_observers();
         true
     }
 
@@ -770,7 +821,7 @@ impl ThreadStateManager {
             for thread_id in &thread_ids {
                 if let Some(thread_entry) = state.threads.get_mut(thread_id) {
                     thread_entry.connection_ids.remove(&connection_id);
-                    thread_entry.update_has_connections();
+                    thread_entry.update_observers();
                 }
             }
             thread_ids
@@ -785,6 +836,7 @@ impl ThreadStateManager {
         }
     }
 
+    #[cfg(test)]
     pub(crate) async fn subscribe_to_has_connections(
         &self,
         thread_id: ThreadId,
@@ -794,5 +846,38 @@ impl ThreadStateManager {
             .threads
             .get(&thread_id)
             .map(|thread_entry| thread_entry.has_connections_watcher.subscribe())
+    }
+
+    /// Adds a workflow-owned observer without creating a synthetic client subscription.
+    pub(crate) async fn retain_internal_observer(&self, thread_id: ThreadId) {
+        let mut state = self.state.lock().await;
+        let thread_entry = state.threads.entry(thread_id).or_default();
+        thread_entry.internal_retentions = thread_entry.internal_retentions.saturating_add(1);
+        thread_entry.update_observers();
+    }
+
+    /// Releases one workflow-owned observer. Dropping a node handle does not call this.
+    pub(crate) async fn release_internal_observer(&self, thread_id: ThreadId) -> bool {
+        let mut state = self.state.lock().await;
+        let Some(thread_entry) = state.threads.get_mut(&thread_id) else {
+            return false;
+        };
+        if thread_entry.internal_retentions == 0 {
+            return false;
+        }
+        thread_entry.internal_retentions -= 1;
+        thread_entry.update_observers();
+        true
+    }
+
+    pub(crate) async fn subscribe_to_has_observers(
+        &self,
+        thread_id: ThreadId,
+    ) -> Option<watch::Receiver<bool>> {
+        let state = self.state.lock().await;
+        state
+            .threads
+            .get(&thread_id)
+            .map(|thread_entry| thread_entry.has_observers_watcher.subscribe())
     }
 }

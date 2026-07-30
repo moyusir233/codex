@@ -151,6 +151,13 @@ impl ThreadWatchManager {
         .await;
     }
 
+    pub(crate) async fn note_thread_loaded(&self, thread_id: &str) {
+        self.update_runtime_for_thread(thread_id, |runtime| {
+            runtime.is_loaded = true;
+        })
+        .await;
+    }
+
     pub(crate) async fn note_turn_completed(&self, thread_id: &str, _failed: bool) {
         self.clear_active_state(thread_id).await;
     }
