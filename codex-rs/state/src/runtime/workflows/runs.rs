@@ -24,6 +24,8 @@ pub enum WorkflowStoreError {
     FornaxCorrelationConflict,
     #[error("workflow interaction dedupe key was reused with a different request")]
     InteractionConflict,
+    #[error("workflow Lark correlation was reused with different routing")]
+    LarkCorrelationConflict,
     #[error("workflow node key or identifier already exists")]
     DuplicateNode,
     #[error("workflow node attempt identifier or submission already exists")]

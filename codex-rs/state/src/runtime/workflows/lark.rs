@@ -95,7 +95,7 @@ ON CONFLICT(interaction_id) DO NOTHING
             .await?
             .ok_or(WorkflowStoreError::StaleWrite)?;
         if record.request_hash != request_hash {
-            return Err(WorkflowStoreError::InteractionConflict);
+            return Err(WorkflowStoreError::LarkCorrelationConflict);
         }
         Ok(if result.rows_affected() == 1 {
             WorkflowLarkInteractionPlanOutcome::Planned(record)
@@ -123,6 +123,30 @@ WHERE interaction_id = ?
         row.map(lark_from_row).transpose()
     }
 
+    pub async fn list_waiting_lark_interactions(
+        &self,
+        chat_id: &str,
+        limit: u32,
+    ) -> Result<Vec<WorkflowLarkInteractionRecord>, WorkflowStoreError> {
+        let rows = sqlx::query(
+            r#"
+SELECT l.interaction_id, l.run_id, l.effect_key, l.request_hash, l.chat_id,
+       l.thread_id, l.request_message_id, l.correlation_token,
+       l.allowed_senders_json, l.watermark_ms, l.poll_page_token, l.updated_at_ms
+FROM workflow_lark_interactions l
+JOIN workflow_interactions i ON i.interaction_id = l.interaction_id
+WHERE l.chat_id = ? AND i.state = 'waiting'
+ORDER BY i.created_at_ms, l.interaction_id
+LIMIT ?
+            "#,
+        )
+        .bind(chat_id)
+        .bind(i64::from(limit.clamp(1, 1_000)))
+        .fetch_all(self.pool())
+        .await?;
+        rows.into_iter().map(lark_from_row).collect()
+    }
+
     pub async fn mark_lark_message_sent(
         &self,
         interaction_id: &str,
@@ -132,7 +156,8 @@ WHERE interaction_id = ?
         Ok(sqlx::query(
             r#"
 UPDATE workflow_lark_interactions
-SET request_message_id = COALESCE(request_message_id, ?), updated_at_ms = ?
+SET request_message_id = COALESCE(request_message_id, ?),
+    updated_at_ms = ?
 WHERE interaction_id = ?
   AND (request_message_id IS NULL OR request_message_id = ?)
             "#,
@@ -145,6 +170,45 @@ WHERE interaction_id = ?
         .await?
         .rows_affected()
             == 1)
+    }
+
+    pub async fn timeout_lark_interaction(
+        &self,
+        interaction_id: &str,
+        now_ms: i64,
+    ) -> Result<bool, WorkflowStoreError> {
+        let mut tx = self.pool().begin().await?;
+        let row = sqlx::query(
+            r#"
+UPDATE workflow_interactions
+SET state = 'timed_out', updated_at_ms = ?
+WHERE interaction_id = ? AND state = 'waiting'
+  AND deadline_ms IS NOT NULL AND deadline_ms <= ?
+RETURNING run_id
+            "#,
+        )
+        .bind(now_ms)
+        .bind(interaction_id)
+        .bind(now_ms)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(row) = row else {
+            tx.rollback().await?;
+            return Ok(false);
+        };
+        let run_id = row.try_get::<String, _>("run_id")?;
+        append_event(
+            &mut tx,
+            &run_id,
+            "interaction.updated",
+            Some(interaction_id),
+            &json!({"kind": "lark.reply", "state": "timed_out"}),
+            now_ms,
+        )
+        .await?;
+        resume_interaction_run(&mut tx, &run_id, interaction_id, "lark.timeout", now_ms).await?;
+        tx.commit().await?;
+        Ok(true)
     }
 
     pub async fn update_lark_poll_cursor(
@@ -199,6 +263,29 @@ ON CONFLICT(source, external_id) DO NOTHING
         .execute(&mut *tx)
         .await?;
         if inserted.rows_affected() == 0 {
+            tx.rollback().await?;
+            return Ok(WorkflowLarkResolveOutcome::Duplicate);
+        }
+        let message_inserted = sqlx::query(
+            r#"
+INSERT INTO workflow_external_events (
+    run_id, source, external_id, received_at_ms, metadata_json
+) SELECT run_id, 'lark.message', ?, ?, ?
+FROM workflow_lark_interactions
+WHERE interaction_id = ?
+ON CONFLICT(source, external_id) DO NOTHING
+            "#,
+        )
+        .bind(&resolve.message_id)
+        .bind(resolve.received_at_ms)
+        .bind(serde_json::to_string(&json!({
+            "event_id": &resolve.event_id,
+            "chat_id": &resolve.chat_id,
+        }))?)
+        .bind(&resolve.interaction_id)
+        .execute(&mut *tx)
+        .await?;
+        if message_inserted.rows_affected() == 0 {
             tx.rollback().await?;
             return Ok(WorkflowLarkResolveOutcome::Duplicate);
         }
@@ -260,34 +347,52 @@ WHERE interaction_id = ? AND state = 'waiting'
             resolve.received_at_ms,
         )
         .await?;
-        let resumed = sqlx::query(
-            r#"
+        resume_interaction_run(
+            &mut tx,
+            &run_id,
+            &resolve.interaction_id,
+            "lark.reply",
+            resolve.received_at_ms,
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(outcome)
+    }
+}
+
+async fn resume_interaction_run(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    run_id: &str,
+    interaction_id: &str,
+    source: &str,
+    now_ms: i64,
+) -> Result<(), WorkflowStoreError> {
+    let resumed = sqlx::query(
+        r#"
 UPDATE workflow_runs
 SET status = 'pending', wake_json = NULL, row_version = row_version + 1,
     updated_at_ms = ?
 WHERE run_id = ? AND status = 'waiting'
   AND json_extract(wake_json, '$.HumanInteraction') = ?
-            "#,
+        "#,
+    )
+    .bind(now_ms)
+    .bind(run_id)
+    .bind(interaction_id)
+    .execute(&mut **tx)
+    .await?;
+    if resumed.rows_affected() == 1 {
+        append_event(
+            tx,
+            run_id,
+            "run.resumed",
+            Some(run_id),
+            &json!({"source": source}),
+            now_ms,
         )
-        .bind(resolve.received_at_ms)
-        .bind(&run_id)
-        .bind(&resolve.interaction_id)
-        .execute(&mut *tx)
         .await?;
-        if resumed.rows_affected() == 1 {
-            append_event(
-                &mut tx,
-                &run_id,
-                "run.resumed",
-                Some(&run_id),
-                &json!({"source": "lark.reply"}),
-                resolve.received_at_ms,
-            )
-            .await?;
-        }
-        tx.commit().await?;
-        Ok(outcome)
     }
+    Ok(())
 }
 
 fn lark_from_row(

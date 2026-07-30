@@ -188,7 +188,7 @@ fn resolve(event_id: &str, sender_id: &str, received_at_ms: i64) -> WorkflowLark
         interaction_id: "interaction-lark".to_string(),
         source: "lark.event".to_string(),
         event_id: event_id.to_string(),
-        message_id: "om_reply_01".to_string(),
+        message_id: format!("om_{event_id}"),
         chat_id: "oc_demo_01".to_string(),
         thread_id: Some("omt_demo_01".to_string()),
         sender_id: sender_id.to_string(),
