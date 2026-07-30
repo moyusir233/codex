@@ -6,10 +6,12 @@ use codex_app_server_protocol::ThreadHistoryBuilder;
 use codex_app_server_protocol::ThreadItem;
 use codex_app_server_protocol::TurnStatus;
 use codex_core::PreparedUserTurn;
+use codex_core::PreparedUserTurnHistory;
 use codex_core::PreparedUserTurnSubmission;
 use codex_core::StartThreadOptions;
 use codex_core::ThreadManager;
 use codex_core::config::Config;
+use codex_core::inspect_prepared_user_turn_history;
 use codex_extension_api::ExtensionDataInit;
 use codex_protocol::ThreadId;
 use codex_protocol::models::AgentMessageInputContent;
@@ -26,6 +28,10 @@ use codex_protocol::protocol::ThreadSettingsOverrides;
 use codex_protocol::protocol::ThreadSource;
 use codex_thread_store::ArchiveThreadParams;
 use codex_thread_store::DeleteThreadParams;
+use codex_thread_store::ListThreadsParams;
+use codex_thread_store::LoadThreadHistoryParams;
+use codex_thread_store::SortDirection;
+use codex_thread_store::ThreadSortKey;
 use codex_thread_store::ThreadStore;
 use codex_workflow_extension::AwaitTurnRequest;
 use codex_workflow_extension::CancellationReason;
@@ -45,9 +51,12 @@ use codex_workflow_extension::NodeTurnStatus;
 use codex_workflow_extension::NodeWorkingDirectory;
 use codex_workflow_extension::PreparedTurnDisposition;
 use codex_workflow_extension::PreparedTurnRequest;
+use codex_workflow_extension::RecoverTurnRequest;
+use codex_workflow_extension::RecoveredTurnState;
 use codex_workflow_extension::RuntimeShutdown;
 use codex_workflow_extension::SteerTurnRequest;
 use codex_workflow_extension::SubmittedTurn;
+use codex_workflow_extension::WorkflowNodeBinding;
 use codex_workflow_extension::WorkflowNodeHost;
 use codex_workflow_extension::WorkflowNodeLaunch;
 
@@ -166,6 +175,73 @@ impl AppServerWorkflowNodeHost {
             return Err(NodeHostError::Host(error.message));
         }
         Ok(MaterializedNode { thread_id })
+    }
+
+    async fn find_materialized(
+        &self,
+        binding: WorkflowNodeBinding,
+    ) -> Result<Vec<ThreadId>, NodeHostError> {
+        let expected = ThreadSource::Feature(binding.thread_source());
+        let mut matches = Vec::new();
+        for archived in [false, true] {
+            let mut cursor = None;
+            loop {
+                let page = self
+                    .thread_store
+                    .list_threads(ListThreadsParams {
+                        page_size: 100,
+                        cursor,
+                        sort_key: ThreadSortKey::CreatedAt,
+                        sort_direction: SortDirection::Asc,
+                        allowed_sources: Vec::new(),
+                        model_providers: Some(Vec::new()),
+                        cwd_filters: None,
+                        archived,
+                        search_term: None,
+                        relation_filter: None,
+                        use_state_db_only: false,
+                    })
+                    .await
+                    .map_err(|error| NodeHostError::Host(error.to_string()))?;
+                matches.extend(
+                    page.items
+                        .into_iter()
+                        .filter(|thread| thread.thread_source.as_ref() == Some(&expected))
+                        .map(|thread| thread.thread_id),
+                );
+                let Some(next) = page.next_cursor else {
+                    break;
+                };
+                cursor = Some(next);
+            }
+        }
+        Ok(matches)
+    }
+
+    async fn recover_turn(
+        &self,
+        request: RecoverTurnRequest,
+    ) -> Result<RecoveredTurnState, NodeHostError> {
+        let history = self
+            .thread_store
+            .load_history(LoadThreadHistoryParams {
+                thread_id: request.thread_id,
+                include_archived: true,
+            })
+            .await
+            .map_err(|error| NodeHostError::Host(error.to_string()))?;
+        let prepared = PreparedUserTurn::new(&request.submission_id, request.input_hash)
+            .map_err(|error| NodeHostError::InvalidRequest(error.to_string()))?;
+        match inspect_prepared_user_turn_history(&history.items, &prepared) {
+            PreparedUserTurnHistory::Missing => Ok(RecoveredTurnState::NoBoundary),
+            PreparedUserTurnHistory::Conflict => Ok(RecoveredTurnState::Conflict),
+            PreparedUserTurnHistory::BoundaryPersisted => Ok(recovered_turn_result(
+                &history.items,
+                &request.submission_id,
+            )
+            .map(RecoveredTurnState::Terminal)
+            .unwrap_or(RecoveredTurnState::Unterminated)),
+        }
     }
 
     async fn submit_turn(
@@ -336,6 +412,13 @@ impl WorkflowNodeHost for AppServerWorkflowNodeHost {
         Box::pin(self.materialize(request))
     }
 
+    fn find_materialized_nodes(
+        &self,
+        binding: WorkflowNodeBinding,
+    ) -> NodeHostFuture<'_, Vec<ThreadId>> {
+        Box::pin(self.find_materialized(binding))
+    }
+
     fn submit_prepared_turn(
         &self,
         request: PreparedTurnRequest,
@@ -345,6 +428,13 @@ impl WorkflowNodeHost for AppServerWorkflowNodeHost {
 
     fn await_terminal_turn(&self, request: AwaitTurnRequest) -> NodeHostFuture<'_, NodeTurnResult> {
         Box::pin(self.await_turn(request))
+    }
+
+    fn recover_prepared_turn(
+        &self,
+        request: RecoverTurnRequest,
+    ) -> NodeHostFuture<'_, RecoveredTurnState> {
+        Box::pin(self.recover_turn(request))
     }
 
     fn steer(&self, request: SteerTurnRequest) -> NodeHostFuture<'_, ()> {
@@ -574,6 +664,31 @@ fn terminal_error_from_rollout(items: &[RolloutItem], turn_id: &str) -> Option<S
             event.error.as_ref().map(|error| error.message.clone())
         }
         _ => None,
+    })
+}
+
+fn recovered_turn_result(items: &[RolloutItem], turn_id: &str) -> Option<NodeTurnResult> {
+    let terminal = items.iter().rev().find_map(|item| match item {
+        RolloutItem::EventMsg(EventMsg::TurnComplete(event)) if event.turn_id == turn_id => Some((
+            if event.error.is_some() {
+                NodeTurnStatus::Failed
+            } else {
+                NodeTurnStatus::Completed
+            },
+            event.error.as_ref().map(|error| error.message.clone()),
+        )),
+        RolloutItem::EventMsg(EventMsg::TurnAborted(event))
+            if event.turn_id.as_deref() == Some(turn_id) =>
+        {
+            Some((NodeTurnStatus::Interrupted, None))
+        }
+        _ => None,
+    })?;
+    Some(NodeTurnResult {
+        turn_id: turn_id.to_string(),
+        status: terminal.0,
+        final_output: final_output_from_rollout(items, turn_id),
+        error: terminal.1,
     })
 }
 
