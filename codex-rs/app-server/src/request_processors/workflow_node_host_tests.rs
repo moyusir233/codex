@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -39,6 +40,7 @@ use codex_workflow_extension::NodeKey;
 use codex_workflow_extension::NodeSpec;
 use codex_workflow_extension::NodeTurnStatus;
 use codex_workflow_extension::RuntimeShutdown;
+use codex_workflow_extension::SkillPolicy;
 use codex_workflow_extension::WorkflowNodeBinding;
 use codex_workflow_extension::WorkflowRunId;
 use pretty_assertions::assert_eq;
@@ -60,10 +62,17 @@ use crate::outgoing_message::OutgoingMessageSender;
 const WORKFLOW_CONNECTION_ID: ConnectionId = ConnectionId(71);
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn workflow_node_uses_normal_listener_flushes_and_preserves_resume_until_delete() -> Result<()>
-{
+async fn extension_order_restores_workflow_binding_before_skills_when_launches_are_disabled()
+-> Result<()> {
     let server = create_mock_responses_server_repeating_assistant("workflow complete").await;
     let codex_home = TempDir::new()?;
+    let skill_dir = codex_home.path().join("skills").join("must-stay-hidden");
+    tokio::fs::create_dir_all(&skill_dir).await?;
+    tokio::fs::write(
+        skill_dir.join("SKILL.md"),
+        "---\nname: must-stay-hidden\ndescription: workflow visibility sentinel\n---\nHIDDEN_SKILL_SENTINEL\n",
+    )
+    .await?;
     let config = Arc::new(build_config(codex_home.path(), &server.uri()).await?);
     let state =
         StateRuntime::init(codex_home.path().to_path_buf(), "mock_provider".to_string()).await?;
@@ -115,7 +124,9 @@ async fn workflow_node_uses_normal_listener_flushes_and_preserves_resume_until_d
         .nodes(run_id)
         .ensure(
             EffectKey::new("ensure-primary")?,
-            NodeSpec::builder(NodeKey::new("primary")?).build()?,
+            NodeSpec::builder(NodeKey::new("primary")?)
+                .skills(SkillPolicy::Disabled)
+                .build()?,
         )
         .await?;
     let thread_id = node.thread_id();
@@ -130,7 +141,12 @@ async fn workflow_node_uses_normal_listener_flushes_and_preserves_resume_until_d
         )
         .await?;
     let result = node.await_turn(turn.turn_id.clone()).await?;
-    assert_eq!(result.status, NodeTurnStatus::Completed);
+    assert_eq!(
+        result.status,
+        NodeTurnStatus::Completed,
+        "node turn failed: {:?}",
+        result.error
+    );
     assert_eq!(result.final_output.as_deref(), Some("workflow complete"));
 
     let (client_started, client_completed) =
@@ -155,6 +171,10 @@ async fn workflow_node_uses_normal_listener_flushes_and_preserves_resume_until_d
                 request_id: RequestId::Integer(2),
                 params: ThreadResumeParams {
                     thread_id: thread_id.to_string(),
+                    config: Some(HashMap::from([(
+                        "features.workflows".to_string(),
+                        json!(false),
+                    )])),
                     ..Default::default()
                 },
             },
@@ -168,7 +188,30 @@ async fn workflow_node_uses_normal_listener_flushes_and_preserves_resume_until_d
         resumed.thread.turns.last().map(|turn| &turn.status),
         Some(&TurnStatus::Completed)
     );
+    let resumed_turn = node
+        .submit(
+            EffectKey::new("resumed-turn")?,
+            NodeInput::text("continue after explicit resume"),
+        )
+        .await?;
+    let resumed_result = node.await_turn(resumed_turn.turn_id).await?;
+    assert_eq!(
+        resumed_result.status,
+        NodeTurnStatus::Completed,
+        "resumed node turn failed: {:?}",
+        resumed_result.error
+    );
+    let requests = server.received_requests().await.unwrap_or_default();
+    assert_eq!(requests.len(), 2);
+    for request in requests {
+        let body = String::from_utf8_lossy(&request.body);
+        assert!(
+            !body.contains("HIDDEN_SKILL_SENTINEL"),
+            "disabled workflow skill leaked into provider request"
+        );
+    }
 
+    node.shutdown_runtime(RuntimeShutdown::Graceful).await?;
     node.delete_history(ConfirmedHistoryDeletion::new(
         WorkflowNodeBinding {
             run_id,

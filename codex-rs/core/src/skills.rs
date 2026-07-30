@@ -10,6 +10,7 @@ use codex_protocol::protocol::SkillScope;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_plugins::PluginSkillRoot;
 
+pub use codex_core_skills::HostSkillsSnapshot;
 pub use codex_core_skills::SkillError;
 pub use codex_core_skills::SkillLoadOutcome;
 pub use codex_core_skills::SkillMetadata;

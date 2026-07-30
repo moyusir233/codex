@@ -5,6 +5,10 @@ use std::sync::Arc;
 use codex_app_server_protocol::ThreadHistoryBuilder;
 use codex_app_server_protocol::ThreadItem;
 use codex_app_server_protocol::TurnStatus;
+use codex_config::ConfigLayerEntry;
+use codex_config::ConfigLayerSource;
+use codex_config::ConfigLayerStack;
+use codex_config::ConfigLayerStackOrdering;
 use codex_core::PreparedUserTurn;
 use codex_core::PreparedUserTurnHistory;
 use codex_core::PreparedUserTurnSubmission;
@@ -12,6 +16,8 @@ use codex_core::StartThreadOptions;
 use codex_core::ThreadManager;
 use codex_core::config::Config;
 use codex_core::inspect_prepared_user_turn_history;
+use codex_core::skills::HostSkillsSnapshot;
+use codex_core::skills::SkillsLoadInput;
 use codex_extension_api::ExtensionDataInit;
 use codex_protocol::ThreadId;
 use codex_protocol::models::AgentMessageInputContent;
@@ -53,7 +59,9 @@ use codex_workflow_extension::PreparedTurnDisposition;
 use codex_workflow_extension::PreparedTurnRequest;
 use codex_workflow_extension::RecoverTurnRequest;
 use codex_workflow_extension::RecoveredTurnState;
+use codex_workflow_extension::ResolvedSkillSelection;
 use codex_workflow_extension::RuntimeShutdown;
+use codex_workflow_extension::SkillPolicy;
 use codex_workflow_extension::SteerTurnRequest;
 use codex_workflow_extension::SubmittedTurn;
 use codex_workflow_extension::WorkflowNodeBinding;
@@ -118,6 +126,8 @@ impl AppServerWorkflowNodeHost {
     ) -> Result<MaterializedNode, NodeHostError> {
         let mut config = self.config.as_ref().clone();
         apply_node_spec(&mut config, &request.spec)?;
+        let host_skills = self.host_skills_snapshot(&config).await;
+        apply_host_skill_restrictions(&mut config, &request.spec, &host_skills)?;
         config.ephemeral = false;
         let environments = self
             .thread_manager
@@ -175,6 +185,93 @@ impl AppServerWorkflowNodeHost {
             return Err(NodeHostError::Host(error.message));
         }
         Ok(MaterializedNode { thread_id })
+    }
+
+    async fn resolve_spec(
+        &self,
+        spec: codex_workflow_extension::NodeSpec,
+    ) -> Result<codex_workflow_extension::NodeSpec, NodeHostError> {
+        if !matches!(spec.skills(), SkillPolicy::AllowOnly(_)) {
+            return Ok(spec.with_resolved_skills(Vec::new()));
+        }
+        let mut config = self.config.as_ref().clone();
+        apply_node_spec(&mut config, &spec)?;
+        let snapshot = self.host_skills_snapshot(&config).await;
+        let mut resolved = Vec::new();
+        let SkillPolicy::AllowOnly(selectors) = spec.skills() else {
+            unreachable!();
+        };
+        for selector in selectors {
+            let skill = if selector.authority.kind == "host" {
+                if selector.authority.id != "host" {
+                    return Err(NodeHostError::InvalidRequest(
+                        "host skill selectors must use authority id `host`".to_string(),
+                    ));
+                }
+                let matches = snapshot
+                    .outcome()
+                    .skills
+                    .iter()
+                    .filter(|skill| {
+                        skill.path_to_skills_md.to_string_lossy() == selector.package.0
+                            && snapshot.outcome().is_skill_enabled(skill)
+                    })
+                    .collect::<Vec<_>>();
+                match matches.as_slice() {
+                    [] => {
+                        return Err(NodeHostError::InvalidRequest(format!(
+                            "workflow host skill is unknown or disabled: {}",
+                            selector.package.0
+                        )));
+                    }
+                    [skill] => ResolvedSkillSelection {
+                        authority: selector.authority.clone(),
+                        package: selector.package.clone(),
+                        name: skill.name.clone(),
+                        invocation_path: skill.path_to_skills_md.to_string_lossy().into_owned(),
+                        initial_invocation: selector.initial_invocation,
+                    },
+                    _ => {
+                        return Err(NodeHostError::InvalidRequest(format!(
+                            "workflow host skill identity is ambiguous: {}",
+                            selector.package.0
+                        )));
+                    }
+                }
+            } else {
+                // Executor and orchestrator selectors are already opaque exact
+                // provider identities. Their provider remains authoritative at
+                // list/read time and fails closed when the identity is absent.
+                ResolvedSkillSelection {
+                    authority: selector.authority.clone(),
+                    package: selector.package.clone(),
+                    name: selector.package.0.clone(),
+                    invocation_path: selector.package.0.clone(),
+                    initial_invocation: selector.initial_invocation,
+                }
+            };
+            resolved.push(skill);
+        }
+        Ok(spec.with_resolved_skills(resolved))
+    }
+
+    async fn host_skills_snapshot(&self, config: &Config) -> HostSkillsSnapshot {
+        let plugins_input = config.plugins_config_input();
+        let plugins_manager = self.thread_manager.plugins_manager();
+        let plugin_outcome = plugins_manager.plugins_for_config(&plugins_input).await;
+        let plugin_skill_snapshots =
+            plugins_manager.plugin_skill_snapshots_for_config(&plugins_input);
+        let input = SkillsLoadInput::new(
+            config.cwd.clone(),
+            plugin_outcome.effective_plugin_skill_roots(),
+            config.config_layer_stack.clone(),
+            config.bundled_skills_enabled(),
+        )
+        .with_plugin_skill_snapshots(plugin_skill_snapshots);
+        self.thread_manager
+            .skills_service()
+            .snapshot_for_config(&input, None)
+            .await
     }
 
     async fn find_materialized(
@@ -405,6 +502,13 @@ impl AppServerWorkflowNodeHost {
 }
 
 impl WorkflowNodeHost for AppServerWorkflowNodeHost {
+    fn resolve_node_spec(
+        &self,
+        spec: codex_workflow_extension::NodeSpec,
+    ) -> NodeHostFuture<'_, codex_workflow_extension::NodeSpec> {
+        Box::pin(self.resolve_spec(spec))
+    }
+
     fn materialize_node(
         &self,
         request: MaterializeNodeRequest,
@@ -590,6 +694,61 @@ fn apply_node_spec(
             .set(approvals)
             .map_err(|error| NodeHostError::InvalidRequest(error.to_string()))?;
     }
+    Ok(())
+}
+
+fn apply_host_skill_restrictions(
+    config: &mut Config,
+    spec: &codex_workflow_extension::NodeSpec,
+    snapshot: &HostSkillsSnapshot,
+) -> Result<(), NodeHostError> {
+    let allowed = match spec.skills() {
+        SkillPolicy::Inherit => return Ok(()),
+        SkillPolicy::Disabled => std::collections::HashSet::new(),
+        SkillPolicy::AllowOnly(_) => spec
+            .resolved_skills()
+            .iter()
+            .filter(|skill| skill.authority.kind == "host" && skill.authority.id == "host")
+            .map(|skill| skill.package.0.as_str())
+            .collect(),
+    };
+    let mut rules = Vec::new();
+    for skill in &snapshot.outcome().skills {
+        let path = skill.path_to_skills_md.to_string_lossy().into_owned();
+        let mut rule = toml::map::Map::new();
+        rule.insert("path".to_string(), toml::Value::String(path.clone()));
+        rule.insert(
+            "enabled".to_string(),
+            toml::Value::Boolean(allowed.contains(path.as_str())),
+        );
+        rules.push(toml::Value::Table(rule));
+    }
+    let mut skills = toml::map::Map::new();
+    skills.insert("config".to_string(), toml::Value::Array(rules));
+    let mut root = toml::map::Map::new();
+    root.insert("skills".to_string(), toml::Value::Table(skills));
+    let workflow_layer =
+        ConfigLayerEntry::new(ConfigLayerSource::SessionFlags, toml::Value::Table(root));
+    let mut layers = config
+        .config_layer_stack
+        .get_layers(
+            ConfigLayerStackOrdering::LowestPrecedenceFirst,
+            /*include_disabled*/ true,
+        )
+        .into_iter()
+        .cloned()
+        .collect::<Vec<_>>();
+    let insertion = layers
+        .iter()
+        .position(|layer| layer.name.precedence() > ConfigLayerSource::SessionFlags.precedence())
+        .unwrap_or(layers.len());
+    layers.insert(insertion, workflow_layer);
+    config.config_layer_stack = ConfigLayerStack::new(
+        layers,
+        config.config_layer_stack.requirements().clone(),
+        config.config_layer_stack.requirements_toml().clone(),
+    )
+    .map_err(|error| NodeHostError::InvalidRequest(error.to_string()))?;
     Ok(())
 }
 
