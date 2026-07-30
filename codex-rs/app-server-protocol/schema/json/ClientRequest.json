@@ -1870,6 +1870,14 @@
       ],
       "type": "string"
     },
+    "NodeThreadSubscription": {
+      "description": "Whether workflow subscribers also receive normal node thread events.",
+      "enum": [
+        "include",
+        "referencesOnly"
+      ],
+      "type": "string"
+    },
     "PermissionProfileListParams": {
       "properties": {
         "cursor": {
@@ -4856,6 +4864,52 @@
         "mode"
       ],
       "type": "object"
+    },
+    "WorkflowArgumentsInput": {
+      "description": "Arguments supplied to one registered workflow definition.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Parse workflow-specific command-line arguments.",
+          "properties": {
+            "argv": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "enum": [
+                "argv"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "argv",
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Validate an already structured JSON argument value.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "json"
+              ],
+              "type": "string"
+            },
+            "value": true
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        }
+      ]
     }
   },
   "description": "Request from the client to the server.",

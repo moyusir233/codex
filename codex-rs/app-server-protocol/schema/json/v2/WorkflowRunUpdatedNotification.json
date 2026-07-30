@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "WorkflowRunStatus": {
+      "description": "Durable workflow run lifecycle state.",
+      "enum": [
+        "pending",
+        "running",
+        "waiting",
+        "cancelling",
+        "succeeded",
+        "failed",
+        "cancelled",
+        "needsOperator"
+      ],
+      "type": "string"
+    }
+  },
+  "properties": {
+    "createdAtMs": {
+      "format": "int64",
+      "type": "integer"
+    },
+    "metadata": true,
+    "runId": {
+      "type": "string"
+    },
+    "sequence": {
+      "format": "uint64",
+      "minimum": 0.0,
+      "type": "integer"
+    },
+    "status": {
+      "$ref": "#/definitions/WorkflowRunStatus"
+    }
+  },
+  "required": [
+    "createdAtMs",
+    "metadata",
+    "runId",
+    "sequence",
+    "status"
+  ],
+  "title": "WorkflowRunUpdatedNotification",
+  "type": "object"
+}

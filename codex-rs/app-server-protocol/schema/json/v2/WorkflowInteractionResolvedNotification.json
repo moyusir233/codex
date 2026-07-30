@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "properties": {
+    "createdAtMs": {
+      "format": "int64",
+      "type": "integer"
+    },
+    "interactionId": {
+      "type": "string"
+    },
+    "metadata": true,
+    "runId": {
+      "type": "string"
+    },
+    "sequence": {
+      "format": "uint64",
+      "minimum": 0.0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "createdAtMs",
+    "interactionId",
+    "metadata",
+    "runId",
+    "sequence"
+  ],
+  "title": "WorkflowInteractionResolvedNotification",
+  "type": "object"
+}

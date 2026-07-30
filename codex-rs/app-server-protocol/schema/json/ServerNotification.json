@@ -5735,6 +5735,190 @@
         "samplePaths"
       ],
       "type": "object"
+    },
+    "WorkflowArtifactCreatedNotification": {
+      "properties": {
+        "artifactId": {
+          "type": "string"
+        },
+        "createdAtMs": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "metadata": true,
+        "runId": {
+          "type": "string"
+        },
+        "sequence": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "artifactId",
+        "createdAtMs",
+        "metadata",
+        "runId",
+        "sequence"
+      ],
+      "type": "object"
+    },
+    "WorkflowInteractionRequestedNotification": {
+      "properties": {
+        "createdAtMs": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "interactionId": {
+          "type": "string"
+        },
+        "metadata": true,
+        "runId": {
+          "type": "string"
+        },
+        "sequence": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "createdAtMs",
+        "interactionId",
+        "metadata",
+        "runId",
+        "sequence"
+      ],
+      "type": "object"
+    },
+    "WorkflowInteractionResolvedNotification": {
+      "properties": {
+        "createdAtMs": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "interactionId": {
+          "type": "string"
+        },
+        "metadata": true,
+        "runId": {
+          "type": "string"
+        },
+        "sequence": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "createdAtMs",
+        "interactionId",
+        "metadata",
+        "runId",
+        "sequence"
+      ],
+      "type": "object"
+    },
+    "WorkflowNodeStatus": {
+      "description": "Durable workflow node lifecycle state.",
+      "enum": [
+        "pending",
+        "ready",
+        "running",
+        "waiting",
+        "succeeded",
+        "failed",
+        "cancelled",
+        "blocked"
+      ],
+      "type": "string"
+    },
+    "WorkflowNodeUpdatedNotification": {
+      "properties": {
+        "createdAtMs": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "metadata": true,
+        "nodeId": {
+          "type": "string"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "sequence": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WorkflowNodeStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "threadId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "createdAtMs",
+        "metadata",
+        "nodeId",
+        "runId",
+        "sequence"
+      ],
+      "type": "object"
+    },
+    "WorkflowRunStatus": {
+      "description": "Durable workflow run lifecycle state.",
+      "enum": [
+        "pending",
+        "running",
+        "waiting",
+        "cancelling",
+        "succeeded",
+        "failed",
+        "cancelled",
+        "needsOperator"
+      ],
+      "type": "string"
+    },
+    "WorkflowRunUpdatedNotification": {
+      "properties": {
+        "createdAtMs": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "metadata": true,
+        "runId": {
+          "type": "string"
+        },
+        "sequence": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "status": {
+          "$ref": "#/definitions/WorkflowRunStatus"
+        }
+      },
+      "required": [
+        "createdAtMs",
+        "metadata",
+        "runId",
+        "sequence",
+        "status"
+      ],
+      "type": "object"
     }
   },
   "description": "Notification sent from the server to the client.",
@@ -5958,6 +6142,106 @@
         "params"
       ],
       "title": "Thread/goal/clearedNotification",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "workflowRun/updated"
+          ],
+          "title": "WorkflowRun/updatedNotificationMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/WorkflowRunUpdatedNotification"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "title": "WorkflowRun/updatedNotification",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "workflowNode/updated"
+          ],
+          "title": "WorkflowNode/updatedNotificationMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/WorkflowNodeUpdatedNotification"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "title": "WorkflowNode/updatedNotification",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "workflowInteraction/requested"
+          ],
+          "title": "WorkflowInteraction/requestedNotificationMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/WorkflowInteractionRequestedNotification"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "title": "WorkflowInteraction/requestedNotification",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "workflowInteraction/resolved"
+          ],
+          "title": "WorkflowInteraction/resolvedNotificationMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/WorkflowInteractionResolvedNotification"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "title": "WorkflowInteraction/resolvedNotification",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "workflowArtifact/created"
+          ],
+          "title": "WorkflowArtifact/createdNotificationMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/WorkflowArtifactCreatedNotification"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "title": "WorkflowArtifact/createdNotification",
       "type": "object"
     },
     {

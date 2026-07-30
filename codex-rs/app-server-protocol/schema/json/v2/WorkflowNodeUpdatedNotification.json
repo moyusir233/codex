@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "WorkflowNodeStatus": {
+      "description": "Durable workflow node lifecycle state.",
+      "enum": [
+        "pending",
+        "ready",
+        "running",
+        "waiting",
+        "succeeded",
+        "failed",
+        "cancelled",
+        "blocked"
+      ],
+      "type": "string"
+    }
+  },
+  "properties": {
+    "createdAtMs": {
+      "format": "int64",
+      "type": "integer"
+    },
+    "metadata": true,
+    "nodeId": {
+      "type": "string"
+    },
+    "runId": {
+      "type": "string"
+    },
+    "sequence": {
+      "format": "uint64",
+      "minimum": 0.0,
+      "type": "integer"
+    },
+    "status": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/WorkflowNodeStatus"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "threadId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "createdAtMs",
+    "metadata",
+    "nodeId",
+    "runId",
+    "sequence"
+  ],
+  "title": "WorkflowNodeUpdatedNotification",
+  "type": "object"
+}

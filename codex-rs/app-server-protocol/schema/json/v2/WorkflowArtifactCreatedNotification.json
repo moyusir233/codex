@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "properties": {
+    "artifactId": {
+      "type": "string"
+    },
+    "createdAtMs": {
+      "format": "int64",
+      "type": "integer"
+    },
+    "metadata": true,
+    "runId": {
+      "type": "string"
+    },
+    "sequence": {
+      "format": "uint64",
+      "minimum": 0.0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "artifactId",
+    "createdAtMs",
+    "metadata",
+    "runId",
+    "sequence"
+  ],
+  "title": "WorkflowArtifactCreatedNotification",
+  "type": "object"
+}

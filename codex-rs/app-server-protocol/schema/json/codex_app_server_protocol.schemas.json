@@ -4332,6 +4332,106 @@
           "properties": {
             "method": {
               "enum": [
+                "workflowRun/updated"
+              ],
+              "title": "WorkflowRun/updatedNotificationMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/v2/WorkflowRunUpdatedNotification"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "title": "WorkflowRun/updatedNotification",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "enum": [
+                "workflowNode/updated"
+              ],
+              "title": "WorkflowNode/updatedNotificationMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/v2/WorkflowNodeUpdatedNotification"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "title": "WorkflowNode/updatedNotification",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "enum": [
+                "workflowInteraction/requested"
+              ],
+              "title": "WorkflowInteraction/requestedNotificationMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/v2/WorkflowInteractionRequestedNotification"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "title": "WorkflowInteraction/requestedNotification",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "enum": [
+                "workflowInteraction/resolved"
+              ],
+              "title": "WorkflowInteraction/resolvedNotificationMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/v2/WorkflowInteractionResolvedNotification"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "title": "WorkflowInteraction/resolvedNotification",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "enum": [
+                "workflowArtifact/created"
+              ],
+              "title": "WorkflowArtifact/createdNotificationMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/v2/WorkflowArtifactCreatedNotification"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "title": "WorkflowArtifact/createdNotification",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "enum": [
                 "thread/settings/updated"
               ],
               "title": "Thread/settings/updatedNotificationMethod",
@@ -13126,6 +13226,14 @@
         },
         "type": "object"
       },
+      "NodeThreadSubscription": {
+        "description": "Whether workflow subscribers also receive normal node thread events.",
+        "enum": [
+          "include",
+          "referencesOnly"
+        ],
+        "type": "string"
+      },
       "NonSteerableTurnKind": {
         "enum": [
           "review",
@@ -21162,6 +21270,438 @@
           "samplePaths"
         ],
         "title": "WindowsWorldWritableWarningNotification",
+        "type": "object"
+      },
+      "WorkflowArgumentsInput": {
+        "description": "Arguments supplied to one registered workflow definition.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "Parse workflow-specific command-line arguments.",
+            "properties": {
+              "argv": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "kind": {
+                "enum": [
+                  "argv"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "argv",
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Validate an already structured JSON argument value.",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "json"
+                ],
+                "type": "string"
+              },
+              "value": true
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "WorkflowArtifactCreatedNotification": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "artifactId": {
+            "type": "string"
+          },
+          "createdAtMs": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "metadata": true,
+          "runId": {
+            "type": "string"
+          },
+          "sequence": {
+            "format": "uint64",
+            "minimum": 0.0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "artifactId",
+          "createdAtMs",
+          "metadata",
+          "runId",
+          "sequence"
+        ],
+        "title": "WorkflowArtifactCreatedNotification",
+        "type": "object"
+      },
+      "WorkflowDefinitionStability": {
+        "description": "Stability classification published by a registered workflow.",
+        "enum": [
+          "experimental",
+          "stable"
+        ],
+        "type": "string"
+      },
+      "WorkflowDefinitionSummary": {
+        "description": "Discovery metadata for one exact registered workflow version.",
+        "properties": {
+          "argumentSchema": true,
+          "argvHelp": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "isDefault": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "outputSchema": true,
+          "requiredCapabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "stability": {
+            "$ref": "#/definitions/v2/WorkflowDefinitionStability"
+          },
+          "stateSchemaVersion": {
+            "format": "uint32",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "argumentSchema",
+          "argvHelp",
+          "description",
+          "isDefault",
+          "name",
+          "outputSchema",
+          "requiredCapabilities",
+          "stability",
+          "stateSchemaVersion",
+          "version"
+        ],
+        "type": "object"
+      },
+      "WorkflowEvent": {
+        "description": "Redacted, monotonically sequenced workflow orchestration event.",
+        "properties": {
+          "createdAtMs": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "entityId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "metadata": true,
+          "runId": {
+            "type": "string"
+          },
+          "sequence": {
+            "format": "uint64",
+            "minimum": 0.0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "createdAtMs",
+          "kind",
+          "metadata",
+          "runId",
+          "sequence"
+        ],
+        "type": "object"
+      },
+      "WorkflowInteractionRequestedNotification": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "createdAtMs": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "interactionId": {
+            "type": "string"
+          },
+          "metadata": true,
+          "runId": {
+            "type": "string"
+          },
+          "sequence": {
+            "format": "uint64",
+            "minimum": 0.0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "createdAtMs",
+          "interactionId",
+          "metadata",
+          "runId",
+          "sequence"
+        ],
+        "title": "WorkflowInteractionRequestedNotification",
+        "type": "object"
+      },
+      "WorkflowInteractionResolvedNotification": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "createdAtMs": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "interactionId": {
+            "type": "string"
+          },
+          "metadata": true,
+          "runId": {
+            "type": "string"
+          },
+          "sequence": {
+            "format": "uint64",
+            "minimum": 0.0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "createdAtMs",
+          "interactionId",
+          "metadata",
+          "runId",
+          "sequence"
+        ],
+        "title": "WorkflowInteractionResolvedNotification",
+        "type": "object"
+      },
+      "WorkflowNodeStatus": {
+        "description": "Durable workflow node lifecycle state.",
+        "enum": [
+          "pending",
+          "ready",
+          "running",
+          "waiting",
+          "succeeded",
+          "failed",
+          "cancelled",
+          "blocked"
+        ],
+        "type": "string"
+      },
+      "WorkflowNodeSummary": {
+        "description": "One node included in a workflow run snapshot.",
+        "properties": {
+          "createdAtMs": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "nodeId": {
+            "type": "string"
+          },
+          "nodeKey": {
+            "type": "string"
+          },
+          "retryAtMs": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/definitions/v2/WorkflowNodeStatus"
+          },
+          "threadId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedAtMs": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "createdAtMs",
+          "nodeId",
+          "nodeKey",
+          "status",
+          "updatedAtMs"
+        ],
+        "type": "object"
+      },
+      "WorkflowNodeUpdatedNotification": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "createdAtMs": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "metadata": true,
+          "nodeId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": "string"
+          },
+          "sequence": {
+            "format": "uint64",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/v2/WorkflowNodeStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "threadId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "createdAtMs",
+          "metadata",
+          "nodeId",
+          "runId",
+          "sequence"
+        ],
+        "title": "WorkflowNodeUpdatedNotification",
+        "type": "object"
+      },
+      "WorkflowRun": {
+        "description": "Durable run snapshot returned by workflow requests.",
+        "properties": {
+          "arguments": true,
+          "createdAtMs": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "errorCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nextSequence": {
+            "format": "uint64",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/definitions/v2/WorkflowNodeSummary"
+            },
+            "type": "array"
+          },
+          "output": true,
+          "runId": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/definitions/v2/WorkflowRunStatus"
+          },
+          "updatedAtMs": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "wake": true,
+          "workflowName": {
+            "type": "string"
+          },
+          "workflowVersion": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "arguments",
+          "createdAtMs",
+          "nextSequence",
+          "nodes",
+          "runId",
+          "status",
+          "updatedAtMs",
+          "workflowName",
+          "workflowVersion"
+        ],
+        "type": "object"
+      },
+      "WorkflowRunStatus": {
+        "description": "Durable workflow run lifecycle state.",
+        "enum": [
+          "pending",
+          "running",
+          "waiting",
+          "cancelling",
+          "succeeded",
+          "failed",
+          "cancelled",
+          "needsOperator"
+        ],
+        "type": "string"
+      },
+      "WorkflowRunUpdatedNotification": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "createdAtMs": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "metadata": true,
+          "runId": {
+            "type": "string"
+          },
+          "sequence": {
+            "format": "uint64",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/definitions/v2/WorkflowRunStatus"
+          }
+        },
+        "required": [
+          "createdAtMs",
+          "metadata",
+          "runId",
+          "sequence",
+          "status"
+        ],
+        "title": "WorkflowRunUpdatedNotification",
         "type": "object"
       },
       "WorkspaceMessage": {
