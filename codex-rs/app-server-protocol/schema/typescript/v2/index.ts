@@ -512,6 +512,7 @@ export type { WindowsSandboxSetupStartResponse } from "./WindowsSandboxSetupStar
 export type { WindowsWorldWritableWarningNotification } from "./WindowsWorldWritableWarningNotification";
 export type { WorkflowArgumentsInput } from "./WorkflowArgumentsInput";
 export type { WorkflowArtifactCreatedNotification } from "./WorkflowArtifactCreatedNotification";
+export type { WorkflowArtifactSummary } from "./WorkflowArtifactSummary";
 export type { WorkflowDefinitionStability } from "./WorkflowDefinitionStability";
 export type { WorkflowDefinitionSummary } from "./WorkflowDefinitionSummary";
 export type { WorkflowEvent } from "./WorkflowEvent";

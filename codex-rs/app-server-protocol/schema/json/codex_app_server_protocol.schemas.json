@@ -21348,6 +21348,45 @@
         "title": "WorkflowArtifactCreatedNotification",
         "type": "object"
       },
+      "WorkflowArtifactSummary": {
+        "description": "Durable artifact manifest safe to expose through workflow run snapshots.",
+        "properties": {
+          "artifactId": {
+            "type": "string"
+          },
+          "classification": {
+            "type": "string"
+          },
+          "createdAtMs": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "mediaType": {
+            "type": "string"
+          },
+          "relativePath": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "sizeBytes": {
+            "format": "uint64",
+            "minimum": 0.0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "artifactId",
+          "classification",
+          "createdAtMs",
+          "mediaType",
+          "relativePath",
+          "sha256",
+          "sizeBytes"
+        ],
+        "type": "object"
+      },
       "WorkflowDefinitionStability": {
         "description": "Stability classification published by a registered workflow.",
         "enum": [
@@ -21543,6 +21582,13 @@
               "null"
             ]
           },
+          "threadIds": {
+            "description": "Every persisted thread used by this node's attempts, in attempt order.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "updatedAtMs": {
             "format": "int64",
             "type": "integer"
@@ -21553,6 +21599,7 @@
           "nodeId",
           "nodeKey",
           "status",
+          "threadIds",
           "updatedAtMs"
         ],
         "type": "object"
@@ -21607,9 +21654,26 @@
         "description": "Durable run snapshot returned by workflow requests.",
         "properties": {
           "arguments": true,
+          "artifacts": {
+            "items": {
+              "$ref": "#/definitions/v2/WorkflowArtifactSummary"
+            },
+            "type": "array"
+          },
+          "concurrency": {
+            "format": "uint32",
+            "minimum": 0.0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "createdAtMs": {
             "format": "int64",
             "type": "integer"
+          },
+          "detached": {
+            "type": "boolean"
           },
           "errorCode": {
             "type": [
@@ -21627,6 +21691,9 @@
               "$ref": "#/definitions/v2/WorkflowNodeSummary"
             },
             "type": "array"
+          },
+          "nonInteractive": {
+            "type": "boolean"
           },
           "output": true,
           "runId": {
@@ -21649,9 +21716,12 @@
         },
         "required": [
           "arguments",
+          "artifacts",
           "createdAtMs",
+          "detached",
           "nextSequence",
           "nodes",
+          "nonInteractive",
           "runId",
           "status",
           "updatedAtMs",

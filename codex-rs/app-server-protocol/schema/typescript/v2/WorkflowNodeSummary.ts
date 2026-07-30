@@ -6,4 +6,8 @@ import type { WorkflowNodeStatus } from "./WorkflowNodeStatus";
 /**
  * One node included in a workflow run snapshot.
  */
-export type WorkflowNodeSummary = { nodeId: string, nodeKey: string, threadId: string | null, status: WorkflowNodeStatus, retryAtMs: bigint | null, createdAtMs: bigint, updatedAtMs: bigint, };
+export type WorkflowNodeSummary = { nodeId: string, nodeKey: string, threadId: string | null,
+/**
+ * Every persisted thread used by this node's attempts, in attempt order.
+ */
+threadIds: Array<string>, status: WorkflowNodeStatus, retryAtMs: bigint | null, createdAtMs: bigint, updatedAtMs: bigint, };
