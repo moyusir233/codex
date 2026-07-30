@@ -20,6 +20,8 @@ pub enum WorkflowStoreError {
     StaleWrite,
     #[error("workflow effect key was reused with a different request")]
     EffectConflict,
+    #[error("workflow Fornax correlation was reused with different identifiers")]
+    FornaxCorrelationConflict,
     #[error("workflow interaction dedupe key was reused with a different request")]
     InteractionConflict,
     #[error("workflow node key or identifier already exists")]

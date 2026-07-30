@@ -42,6 +42,8 @@ pub use workflow::WorkflowDependencyRecord;
 pub use workflow::WorkflowEffectRecord;
 pub use workflow::WorkflowEffectState;
 pub use workflow::WorkflowEventRecord;
+pub use workflow::WorkflowFornaxTraceRecord;
+pub use workflow::WorkflowFornaxTraceState;
 pub use workflow::WorkflowInteractionRecord;
 pub use workflow::WorkflowInteractionState;
 pub use workflow::WorkflowLease;

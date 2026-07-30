@@ -8,6 +8,10 @@ use crate::WorkflowEffectPlan;
 use crate::WorkflowEffectPlanOutcome;
 use crate::WorkflowEffectState;
 use crate::WorkflowEffectUpdate;
+use crate::WorkflowFornaxTracePlan;
+use crate::WorkflowFornaxTracePlanOutcome;
+use crate::WorkflowFornaxTraceState;
+use crate::WorkflowFornaxTraceUpdate;
 use crate::WorkflowInteractionPlan;
 use crate::WorkflowInteractionPlanOutcome;
 use crate::WorkflowInteractionState;
@@ -50,6 +54,100 @@ async fn create_run(runtime: &StateRuntime, run_id: &str) {
         })
         .await
         .expect("create workflow run");
+}
+
+#[tokio::test]
+async fn workflow_fornax_correlations_are_idempotent_immutable_and_restart_durable() {
+    let home = unique_temp_dir();
+    {
+        let runtime = init(&home).await;
+        create_run(runtime.as_ref(), "run-fornax").await;
+        let store = runtime.workflows();
+        store
+            .plan_effect(WorkflowEffectPlan {
+                run_id: "run-fornax".to_string(),
+                effect_key: "trace-root".to_string(),
+                kind: "fornax.trace.start".to_string(),
+                request: json!({"name": "root"}),
+                created_at_ms: 101,
+            })
+            .await
+            .expect("plan trace effect");
+        let plan = || WorkflowFornaxTracePlan {
+            run_id: "run-fornax".to_string(),
+            effect_key: "trace-root".to_string(),
+            operation_id: "00000000-0000-4000-8000-000000000001".to_string(),
+            request_hash: "a".repeat(64),
+            created_at_ms: 102,
+        };
+        assert!(matches!(
+            store
+                .plan_fornax_trace(plan())
+                .await
+                .expect("plan correlation"),
+            WorkflowFornaxTracePlanOutcome::Planned(_)
+        ));
+        assert!(matches!(
+            store
+                .plan_fornax_trace(plan())
+                .await
+                .expect("reconcile correlation"),
+            WorkflowFornaxTracePlanOutcome::Existing(_)
+        ));
+        assert!(
+            store
+                .update_fornax_trace(WorkflowFornaxTraceUpdate {
+                    run_id: "run-fornax".to_string(),
+                    effect_key: "trace-root".to_string(),
+                    expected_state: WorkflowFornaxTraceState::Planned,
+                    state: WorkflowFornaxTraceState::Live,
+                    span_handle_id: Some("00000000-0000-4000-8000-000000000002".to_string()),
+                    trace_context_id: Some("00000000-0000-4000-8000-000000000003".to_string()),
+                    trace_id: Some("1".repeat(32)),
+                    span_id: Some("2".repeat(16)),
+                    bridge_instance_id: Some("fbi_test".to_string()),
+                    error_code: None,
+                    updated_at_ms: 103,
+                })
+                .await
+                .expect("persist live identifiers")
+        );
+        assert!(
+            !store
+                .update_fornax_trace(WorkflowFornaxTraceUpdate {
+                    run_id: "run-fornax".to_string(),
+                    effect_key: "trace-root".to_string(),
+                    expected_state: WorkflowFornaxTraceState::Live,
+                    state: WorkflowFornaxTraceState::Finished,
+                    span_handle_id: Some("00000000-0000-4000-8000-999999999999".to_string()),
+                    trace_context_id: None,
+                    trace_id: None,
+                    span_id: None,
+                    bridge_instance_id: None,
+                    error_code: None,
+                    updated_at_ms: 104,
+                })
+                .await
+                .expect("reject changed handle")
+        );
+    }
+
+    let restarted = init(&home).await;
+    let record = restarted
+        .workflows()
+        .read_fornax_trace("run-fornax", "trace-root")
+        .await
+        .expect("read after restart")
+        .expect("correlation");
+    assert_eq!(record.state, WorkflowFornaxTraceState::Live);
+    assert_eq!(
+        record.trace_context_id.as_deref(),
+        Some("00000000-0000-4000-8000-000000000003")
+    );
+    assert_eq!(
+        record.trace_id.as_deref(),
+        Some("11111111111111111111111111111111")
+    );
 }
 
 #[tokio::test]

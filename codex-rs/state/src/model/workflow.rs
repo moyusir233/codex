@@ -153,6 +153,61 @@ pub struct WorkflowEffectRecord {
     pub error_code: Option<String>,
 }
 
+/// Recovery classification and correlations for one Fornax trace effect.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorkflowFornaxTraceState {
+    Planned,
+    Live,
+    Applied,
+    Finished,
+    Orphaned,
+    Ambiguous,
+    Failed,
+}
+
+impl WorkflowFornaxTraceState {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Planned => "planned",
+            Self::Live => "live",
+            Self::Applied => "applied",
+            Self::Finished => "finished",
+            Self::Orphaned => "orphaned",
+            Self::Ambiguous => "ambiguous",
+            Self::Failed => "failed",
+        }
+    }
+
+    pub(crate) fn parse(value: &str) -> anyhow::Result<Self> {
+        match value {
+            "planned" => Ok(Self::Planned),
+            "live" => Ok(Self::Live),
+            "applied" => Ok(Self::Applied),
+            "finished" => Ok(Self::Finished),
+            "orphaned" => Ok(Self::Orphaned),
+            "ambiguous" => Ok(Self::Ambiguous),
+            "failed" => Ok(Self::Failed),
+            _ => Err(anyhow::anyhow!("unknown workflow Fornax trace state")),
+        }
+    }
+}
+
+/// Durable identifiers needed to reconcile one Fornax bridge mutation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkflowFornaxTraceRecord {
+    pub run_id: String,
+    pub effect_key: String,
+    pub operation_id: String,
+    pub request_hash: String,
+    pub span_handle_id: Option<String>,
+    pub trace_context_id: Option<String>,
+    pub trace_id: Option<String>,
+    pub span_id: Option<String>,
+    pub bridge_instance_id: Option<String>,
+    pub state: WorkflowFornaxTraceState,
+    pub error_code: Option<String>,
+}
+
 /// Durable workflow node lifecycle state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WorkflowNodeStatus {
