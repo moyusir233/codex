@@ -1,4 +1,5 @@
 mod arguments;
+mod artifact;
 mod context;
 mod definition;
 mod error;
@@ -13,6 +14,7 @@ pub use definition::WorkflowStability;
 pub use definition::WorkflowState;
 pub use error::ArgumentError;
 pub use error::WorkflowError;
+pub use ids::ArtifactId;
 pub use ids::EffectKey;
 pub use ids::IdentifierError;
 pub use ids::InteractionId;
@@ -26,5 +28,7 @@ pub use ids::WorkflowVersion;
 pub use transition::WakeCondition;
 pub use transition::WorkflowTransition;
 
+pub use artifact::ArtifactClassification;
+pub use artifact::ArtifactMetadata;
 pub use context::WorkflowCancellation;
 pub use context::WorkflowContext;

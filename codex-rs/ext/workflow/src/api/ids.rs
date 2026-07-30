@@ -239,6 +239,11 @@ uuid_id!(
     "interaction ID",
     "UUIDv7 identity of one durable human interaction."
 );
+uuid_id!(
+    ArtifactId,
+    "artifact ID",
+    "UUIDv7 identity of one immutable workflow artifact."
+);
 
 /// Monotonic, one-based sequence number for durable workflow events.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]

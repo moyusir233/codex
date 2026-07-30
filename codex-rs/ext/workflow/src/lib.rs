@@ -8,8 +8,12 @@ pub mod api;
 #[doc(hidden)]
 pub mod feasibility;
 pub mod registry;
+pub mod runtime;
 
 pub use api::ArgumentError;
+pub use api::ArtifactClassification;
+pub use api::ArtifactId;
+pub use api::ArtifactMetadata;
 pub use api::EffectKey;
 pub use api::IdentifierError;
 pub use api::InteractionId;
@@ -37,3 +41,6 @@ pub use registry::WorkflowDefinition;
 pub use registry::WorkflowDefinitionMetadata;
 pub use registry::WorkflowRegistry;
 pub use registry::WorkflowRegistryBuilder;
+pub use runtime::WorkflowArtifactStore;
+pub use runtime::WorkflowArtifactStoreError;
+pub use runtime::WorkflowArtifactWrite;
