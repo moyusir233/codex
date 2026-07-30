@@ -14,6 +14,7 @@
 - [Approvals](#approvals)
 - [Skills](#skills)
 - [Apps](#apps)
+- [Experimental workflows](#experimental-workflows)
 - [Auth endpoints](#auth-endpoints)
 - [Experimental API Opt-in](#experimental-api-opt-in)
 
@@ -1954,6 +1955,36 @@ $demo-app Pull the latest updates from the team.
   }
 }
 ```
+
+## Experimental workflows
+
+Set `features.workflows=true` and advertise the experimental API capability to
+discover workflows with `workflow/list`. The app server owns the only built-in
+registry and installs `prompt-review@1.0.0` as its default version. CLI and
+direct JSON-RPC launch therefore use the same definition and durable store.
+
+`workflow/run` validates the name/version, typed arguments, runner policy, and
+the complete declared capability bundle before creating a run. In particular,
+the reference workflow is unavailable until exact Fornax bridge/SDK/CLI
+versions, live trace-write approval, Lark CLI auth/scopes, the durable human
+interaction service, node host, explicit skills, and artifact storage have all
+been installed. The server never starts login, expands scopes, or grants live
+write approval as a side effect of launch.
+
+Subscribe at launch or through `workflowRun/subscribe` to replay sequenced
+events. A human wait returns a durable interaction and releases the reducer
+lease; a valid Lark reply or `workflowInteraction/respond` resolves it once and
+requeues only that run. `workflowRun/resume` is for `waiting` or
+`needsOperator` runs, while returned node thread IDs use the ordinary
+`thread/resume` API. Node rollouts are not archived or deleted when a run
+finishes.
+
+On restart, app-server recovery repairs persisted node mappings and terminal
+turns before driving a reducer. Ambiguous external effects and orphaned
+correlations become `needsOperator`; preserve `$CODEX_HOME/workflows_1.sqlite`,
+workflow artifacts, node rollouts, and the Fornax bridge journal while
+repairing them. See `codex-rs/ext/workflow/README.md` for the full capability,
+security, local-test, and live-test contract.
 
 ## Auth endpoints
 

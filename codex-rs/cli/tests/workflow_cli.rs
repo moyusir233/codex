@@ -151,7 +151,7 @@ fn workflow_list_uses_the_embedded_registry() -> Result<()> {
     cmd.args(["workflow", "--list"])
         .assert()
         .success()
-        .stdout("No workflows are registered.\n");
+        .stdout(contains("prompt-review 1.0.0 (default)"));
     Ok(())
 }
 
@@ -169,10 +169,13 @@ fn workflow_json_list_is_clean_ndjson() -> Result<()> {
         .clone();
     let stdout = String::from_utf8(output)?;
     let lines = stdout.lines().collect::<Vec<_>>();
-    assert_eq!(lines.len(), 1);
-    let value: Value = serde_json::from_str(lines[0])?;
-    assert_eq!(value["type"], "result");
-    assert_eq!(value["definitionCount"], 0);
+    assert_eq!(lines.len(), 2);
+    let definition: Value = serde_json::from_str(lines[0])?;
+    assert_eq!(definition["type"], "definition");
+    assert_eq!(definition["definition"]["name"], "prompt-review");
+    let result: Value = serde_json::from_str(lines[1])?;
+    assert_eq!(result["type"], "result");
+    assert_eq!(result["definitionCount"], 1);
     Ok(())
 }
 

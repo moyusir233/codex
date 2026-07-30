@@ -49,7 +49,18 @@ const EXIT_INTERRUPT: u8 = 130;
 #[derive(Debug, Args)]
 #[command(
     trailing_var_arg = true,
-    override_usage = "codex workflow [runner-options...] <workflow-name> [workflow-args...]"
+    override_usage = "codex workflow [runner-options...] <workflow-name> [workflow-args...]",
+    long_about = "Run a registered durable workflow through the app server.\n\n\
+Use --list to discover exact versions, schemas, help, and required capabilities. \
+The built-in prompt-review workflow remains unavailable until its exact Fornax \
+and Lark versions, auth/scopes, live trace approval, node/skill host, and artifact \
+store are configured. Launch never installs tools, starts login, or grants live \
+writes.\n\n\
+Example:\n  codex workflow prompt-review --prompt-key KEY --reviewers 3 \
+--lark-users ou_a,ou_b --lark-chat-id oc_review\n\n\
+Use --json for NDJSON automation. Use --detach only with a persistent remote app \
+server. Resume a waiting/operator run with --resume-run RUN_ID; resume returned \
+node sessions with `codex resume THREAD_ID`."
 )]
 pub(crate) struct WorkflowCli {
     /// List registered workflow definitions.
