@@ -10,20 +10,20 @@ use std::sync::atomic::Ordering;
 
 use codex_state::WorkflowRunStatus;
 use codex_workflow_extension::ArtifactId;
-use codex_workflow_extension::DriveOutcome;
 use codex_workflow_extension::DependencyPolicy;
+use codex_workflow_extension::DriveOutcome;
 use codex_workflow_extension::EffectKey;
 use codex_workflow_extension::HumanInteractionOutcome;
 use codex_workflow_extension::InteractionId;
+use codex_workflow_extension::NodeInput;
+use codex_workflow_extension::NodeKey;
+use codex_workflow_extension::NodeSpec;
 use codex_workflow_extension::PromptReviewArguments;
 use codex_workflow_extension::PromptReviewCapability;
 use codex_workflow_extension::PromptReviewCapabilityFuture;
 use codex_workflow_extension::PromptReviewOutput;
 use codex_workflow_extension::PromptReviewPrepared;
 use codex_workflow_extension::PromptReviewReview;
-use codex_workflow_extension::NodeInput;
-use codex_workflow_extension::NodeKey;
-use codex_workflow_extension::NodeSpec;
 use codex_workflow_extension::SkillAuthoritySelector;
 use codex_workflow_extension::SkillInitialInvocation;
 use codex_workflow_extension::SkillPackageSelector;
@@ -136,10 +136,7 @@ impl PromptReviewCapability for FakePromptReview {
                 reviewers.push((reviewer, turn.turn_id));
             }
             for (reviewer, turn_id) in &reviewers {
-                reviewer
-                    .await_turn(turn_id)
-                    .await
-                    .map_err(workflow_error)?;
+                reviewer.await_turn(turn_id).await.map_err(workflow_error)?;
             }
 
             let synthesizer = ensure_node(&self.service, run_id, "synthesizer", 4).await?;
@@ -224,7 +221,10 @@ impl PromptReviewCapability for FakePromptReview {
                 .await
                 .map_err(workflow_error)?;
             let turn = synthesizer
-                .start(effect("turn.synthesizer.follow-up")?, NodeInput::text("human reply"))
+                .start(
+                    effect("turn.synthesizer.follow-up")?,
+                    NodeInput::text("human reply"),
+                )
                 .await
                 .map_err(workflow_error)?;
             synthesizer
@@ -331,11 +331,7 @@ async fn prompt_review_e2e_restarts_at_human_wait_and_resolves_once() {
 
     let interaction_id = InteractionId::new();
     let host = Arc::new(support::TestHost::default());
-    let node_service = support::service(
-        runtime.as_ref(),
-        Arc::clone(&host),
-        Arc::clone(&registry),
-    );
+    let node_service = support::service(runtime.as_ref(), Arc::clone(&host), Arc::clone(&registry));
     let before_restart = Arc::new(FakePromptReview::waiting(
         node_service.clone(),
         interaction_id,
