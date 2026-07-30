@@ -173,6 +173,9 @@ async fn skill_policy_persists_all_authority_resolution_and_uses_normal_initial_
             state_schema_version: 1,
             state: json!({}),
             arguments: json!({}),
+            non_interactive: false,
+            detached: false,
+            concurrency: None,
             created_at_ms: 1,
         })
         .await

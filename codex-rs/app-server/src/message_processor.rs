@@ -346,6 +346,7 @@ impl MessageProcessor {
                             thread_list_state_permit: Arc::clone(&thread_list_state_permit),
                             skills_watcher: Arc::clone(&skills_watcher),
                             workflow_subscriptions: workflow_subscriptions.clone(),
+                            workflow_store: workflow_service.store().clone(),
                         },
                     )))
         {

@@ -54,6 +54,9 @@ pub struct WorkflowRunCreate {
     pub state_schema_version: u32,
     pub state: Value,
     pub arguments: Value,
+    pub non_interactive: bool,
+    pub detached: bool,
+    pub concurrency: Option<u32>,
     pub created_at_ms: i64,
 }
 
@@ -66,6 +69,9 @@ pub struct WorkflowRunRecord {
     pub state_schema_version: u32,
     pub state: Value,
     pub arguments: Value,
+    pub non_interactive: bool,
+    pub detached: bool,
+    pub concurrency: Option<u32>,
     pub status: WorkflowRunStatus,
     pub output: Option<Value>,
     pub error_code: Option<String>,
@@ -382,7 +388,7 @@ pub enum WorkflowArtifactClassification {
 }
 
 impl WorkflowArtifactClassification {
-    pub(crate) fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Public => "public",
             Self::Internal => "internal",

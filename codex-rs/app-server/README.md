@@ -652,6 +652,9 @@ explicit tagged representation:
 { "method": "workflow/run", "id": 40, "params": {
   "workflowName": "prompt-review",
   "arguments": { "kind": "argv", "argv": ["--prompt-key", "welcome"] },
+  "nonInteractive": true,
+  "detached": false,
+  "concurrency": 3,
   "subscribe": true,
   "nodeThreads": "include"
 } }
@@ -673,6 +676,10 @@ The response includes a current run snapshot, replayed events, and
 `snapshotRequired` is true, rebuild from the returned snapshot. With
 `nodeThreads: "include"`, node approvals, items, turns, and errors retain their
 normal thread protocol types; they are not wrapped as workflow notifications.
+Run snapshots include immutable artifact manifests and each node's complete
+attempt-thread ID list so clients can print stable `codex resume <thread-id>`
+commands. Non-interactive or detached launches fail closed unless every
+materialized node explicitly rejects approval requests when detached.
 
 ### Example: Archive a thread
 

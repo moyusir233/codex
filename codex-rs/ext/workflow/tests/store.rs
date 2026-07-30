@@ -33,6 +33,9 @@ async fn store_writes_private_atomic_artifact_and_manifest() {
             state_schema_version: 1,
             state: json!({}),
             arguments: json!({}),
+            non_interactive: false,
+            detached: false,
+            concurrency: None,
             created_at_ms: 10,
         })
         .await
@@ -60,6 +63,12 @@ async fn store_writes_private_atomic_artifact_and_manifest() {
         .expect("artifact manifest exists");
     assert_eq!(manifest.sha256, metadata.sha256);
     assert_eq!(manifest.byte_count, metadata.byte_count);
+    let manifests = runtime
+        .workflows()
+        .list_artifacts(&run_id.to_string())
+        .await
+        .expect("list artifact manifests");
+    assert_eq!(manifests, vec![manifest]);
     assert_eq!(
         tokio::fs::read(
             store

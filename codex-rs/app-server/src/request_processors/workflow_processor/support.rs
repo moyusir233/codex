@@ -20,20 +20,54 @@ impl WorkflowRequestProcessor {
         record: WorkflowRunRecord,
     ) -> Result<WorkflowRun, JSONRPCErrorError> {
         let service = self.enabled_service()?;
-        let nodes = service
+        let node_records = service
             .store()
             .list_nodes(&record.run_id)
             .await
-            .map_err(workflow_store_error)?
-            .into_iter()
-            .map(|node| WorkflowNodeSummary {
+            .map_err(workflow_store_error)?;
+        let mut nodes = Vec::with_capacity(node_records.len());
+        for node in node_records {
+            let attempts = service
+                .store()
+                .list_node_attempts(&node.node_id)
+                .await
+                .map_err(workflow_store_error)?;
+            let mut thread_ids = Vec::new();
+            for thread_id in attempts.into_iter().filter_map(|attempt| attempt.thread_id) {
+                if !thread_ids.contains(&thread_id) {
+                    thread_ids.push(thread_id);
+                }
+            }
+            if let Some(thread_id) = node.thread_id.as_ref()
+                && !thread_ids.contains(thread_id)
+            {
+                thread_ids.push(thread_id.clone());
+            }
+            nodes.push(WorkflowNodeSummary {
                 node_id: node.node_id,
                 node_key: node.node_key,
                 thread_id: node.thread_id,
+                thread_ids,
                 status: node_status(node.status),
                 retry_at_ms: node.retry_at_ms,
                 created_at_ms: node.created_at_ms,
                 updated_at_ms: node.updated_at_ms,
+            });
+        }
+        let artifacts = service
+            .store()
+            .list_artifacts(&record.run_id)
+            .await
+            .map_err(workflow_store_error)?
+            .into_iter()
+            .map(|artifact| WorkflowArtifactSummary {
+                artifact_id: artifact.artifact_id,
+                relative_path: artifact.relative_path,
+                classification: artifact.classification.as_str().to_string(),
+                media_type: artifact.media_type,
+                size_bytes: artifact.byte_count,
+                sha256: artifact.sha256,
+                created_at_ms: artifact.created_at_ms,
             })
             .collect();
         Ok(WorkflowRun {
@@ -42,11 +76,15 @@ impl WorkflowRequestProcessor {
             workflow_version: record.definition_version,
             status: run_status(record.status),
             arguments: record.arguments,
+            non_interactive: record.non_interactive,
+            detached: record.detached,
+            concurrency: record.concurrency,
             output: record.output,
             error_code: record.error_code,
             wake: record.wake,
             next_sequence: record.next_sequence,
             nodes,
+            artifacts,
             created_at_ms: record.created_at_ms,
             updated_at_ms: record.updated_at_ms,
         })

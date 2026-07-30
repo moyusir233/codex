@@ -7,6 +7,7 @@ use std::time::Duration;
 use codex_app_server_protocol::JSONRPCErrorError;
 use codex_app_server_protocol::NodeThreadSubscription;
 use codex_app_server_protocol::WorkflowArgumentsInput;
+use codex_app_server_protocol::WorkflowArtifactSummary;
 use codex_app_server_protocol::WorkflowDefinitionStability;
 use codex_app_server_protocol::WorkflowDefinitionSummary;
 use codex_app_server_protocol::WorkflowInteractionRespondParams;
@@ -128,6 +129,15 @@ impl WorkflowRequestProcessor {
         params: WorkflowRunParams,
     ) -> Result<WorkflowRunResponse, JSONRPCErrorError> {
         let service = self.enabled_service()?;
+        if params
+            .concurrency
+            .is_some_and(|concurrency| concurrency == 0)
+        {
+            return Err(workflow_invalid(
+                "invalid_concurrency",
+                "workflow concurrency must be greater than zero",
+            ));
+        }
         let name = WorkflowName::new(params.workflow_name)
             .map_err(|error| workflow_invalid("invalid_workflow_name", error.to_string()))?;
         let version = params
@@ -159,6 +169,9 @@ impl WorkflowRequestProcessor {
                 state_schema_version: checkpoint.state_schema_version(),
                 state: checkpoint.state().clone(),
                 arguments,
+                non_interactive: params.non_interactive,
+                detached: params.detached,
+                concurrency: params.concurrency,
                 created_at_ms: now_ms,
             })
             .await
@@ -222,6 +235,12 @@ impl WorkflowRequestProcessor {
             .await
             .map_err(workflow_store_error)?
             .ok_or_else(|| workflow_invalid("run_not_found", "workflow run was not found"))?;
+        if params.detached && !current.detached {
+            return Err(workflow_conflict(
+                "run_not_detachable",
+                "workflow run was not launched with detached-safe node policies",
+            ));
+        }
         if !matches!(
             current.status,
             codex_state::WorkflowRunStatus::Waiting | codex_state::WorkflowRunStatus::NeedsOperator

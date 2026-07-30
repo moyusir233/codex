@@ -221,6 +221,9 @@ async fn node_lifecycle_journals_idempotent_turns_and_delegates_explicit_operati
             state_schema_version: 1,
             state: json!({}),
             arguments: json!({}),
+            non_interactive: false,
+            detached: false,
+            concurrency: None,
             created_at_ms: 1,
         })
         .await

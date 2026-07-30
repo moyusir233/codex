@@ -32,6 +32,7 @@ use codex_protocol::protocol::RolloutItem;
 use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::ThreadSettingsOverrides;
 use codex_protocol::protocol::ThreadSource;
+use codex_state::WorkflowStore;
 use codex_thread_store::ArchiveThreadParams;
 use codex_thread_store::DeleteThreadParams;
 use codex_thread_store::ListThreadsParams;
@@ -85,6 +86,7 @@ pub(crate) struct AppServerWorkflowNodeHost {
     session_source: SessionSource,
     listener_task_context: ListenerTaskContext,
     workflow_subscriptions: Option<WorkflowSubscriptions>,
+    workflow_store: WorkflowStore,
 }
 
 pub(crate) struct AppServerWorkflowNodeHostArgs {
@@ -99,6 +101,7 @@ pub(crate) struct AppServerWorkflowNodeHostArgs {
     pub thread_list_state_permit: Arc<tokio::sync::Semaphore>,
     pub skills_watcher: Arc<SkillsWatcher>,
     pub workflow_subscriptions: Option<WorkflowSubscriptions>,
+    pub workflow_store: WorkflowStore,
 }
 
 impl AppServerWorkflowNodeHost {
@@ -121,6 +124,7 @@ impl AppServerWorkflowNodeHost {
             session_source: args.session_source,
             listener_task_context,
             workflow_subscriptions: args.workflow_subscriptions,
+            workflow_store: args.workflow_store,
         }
     }
 
@@ -128,6 +132,15 @@ impl AppServerWorkflowNodeHost {
         &self,
         request: MaterializeNodeRequest,
     ) -> Result<MaterializedNode, NodeHostError> {
+        let run = self
+            .workflow_store
+            .read_run(&request.binding.run_id.to_string())
+            .await
+            .map_err(|error| NodeHostError::Host(error.to_string()))?
+            .ok_or_else(|| {
+                NodeHostError::InvalidRequest("workflow run was not found".to_string())
+            })?;
+        validate_runner_approval_policy(run.non_interactive, run.detached, &request.spec)?;
         let mut config = self.config.as_ref().clone();
         apply_node_spec(&mut config, &request.spec)?;
         let host_skills = self.host_skills_snapshot(&config).await;
@@ -712,6 +725,27 @@ fn apply_node_spec(
             .map_err(|error| NodeHostError::InvalidRequest(error.to_string()))?;
     }
     Ok(())
+}
+
+fn validate_runner_approval_policy(
+    non_interactive: bool,
+    detached: bool,
+    spec: &codex_workflow_extension::NodeSpec,
+) -> Result<(), NodeHostError> {
+    if !(non_interactive || detached) {
+        return Ok(());
+    }
+    if matches!(
+        spec.approvals(),
+        NodeApprovals::RejectWhenDetached
+            | NodeApprovals::Policy(codex_protocol::protocol::AskForApproval::Never)
+    ) {
+        return Ok(());
+    }
+    Err(NodeHostError::InvalidRequest(
+        "non-interactive or detached workflow nodes must use RejectWhenDetached or approval policy Never"
+            .to_string(),
+    ))
 }
 
 fn apply_host_skill_restrictions(

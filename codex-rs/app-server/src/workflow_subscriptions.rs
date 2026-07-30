@@ -324,6 +324,9 @@ mod tests {
                 state_schema_version: 1,
                 state: json!({}),
                 arguments: json!({}),
+                non_interactive: false,
+                detached: false,
+                concurrency: None,
                 created_at_ms: 100,
             })
             .await

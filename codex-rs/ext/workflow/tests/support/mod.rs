@@ -251,6 +251,9 @@ pub async fn create_run(
             state_schema_version,
             state,
             arguments: json!({}),
+            non_interactive: false,
+            detached: false,
+            concurrency: None,
             created_at_ms: 100,
         })
         .await

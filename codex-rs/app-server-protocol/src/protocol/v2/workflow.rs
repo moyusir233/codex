@@ -85,11 +85,27 @@ pub struct WorkflowNodeSummary {
     pub node_key: String,
     #[ts(type = "string | null")]
     pub thread_id: Option<String>,
+    /// Every persisted thread used by this node's attempts, in attempt order.
+    pub thread_ids: Vec<String>,
     pub status: WorkflowNodeStatus,
     #[ts(type = "bigint | null")]
     pub retry_at_ms: Option<i64>,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
+}
+
+/// Durable artifact manifest safe to expose through workflow run snapshots.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+pub struct WorkflowArtifactSummary {
+    pub artifact_id: String,
+    pub relative_path: String,
+    pub classification: String,
+    pub media_type: String,
+    pub size_bytes: u64,
+    pub sha256: String,
+    pub created_at_ms: i64,
 }
 
 /// Durable run snapshot returned by workflow requests.
@@ -103,6 +119,10 @@ pub struct WorkflowRun {
     pub status: WorkflowRunStatus,
     #[ts(type = "unknown")]
     pub arguments: Value,
+    pub non_interactive: bool,
+    pub detached: bool,
+    #[ts(type = "number | null")]
+    pub concurrency: Option<u32>,
     #[ts(type = "unknown")]
     pub output: Option<Value>,
     #[ts(type = "string | null")]
@@ -111,6 +131,7 @@ pub struct WorkflowRun {
     pub wake: Option<Value>,
     pub next_sequence: u64,
     pub nodes: Vec<WorkflowNodeSummary>,
+    pub artifacts: Vec<WorkflowArtifactSummary>,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
 }
@@ -150,6 +171,15 @@ pub struct WorkflowRunParams {
     #[ts(optional = nullable)]
     pub workflow_version: Option<String>,
     pub arguments: WorkflowArgumentsInput,
+    /// Reject rather than auto-approve interactive node requests.
+    #[serde(default)]
+    pub non_interactive: bool,
+    /// The caller will disconnect after the run is accepted.
+    #[serde(default)]
+    pub detached: bool,
+    /// Optional caller-requested node concurrency cap.
+    #[ts(optional = nullable)]
+    pub concurrency: Option<u32>,
     #[serde(default)]
     pub subscribe: bool,
     #[serde(default)]
@@ -201,6 +231,9 @@ pub struct WorkflowRunReadResponse {
 #[ts(export_to = "v2/")]
 pub struct WorkflowRunResumeParams {
     pub run_id: String,
+    /// The resuming client will disconnect after acceptance.
+    #[serde(default)]
+    pub detached: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
@@ -400,6 +433,45 @@ mod tests {
         assert_eq!(
             ExperimentalApi::experimental_reason(&request),
             Some("workflowRun/subscribe")
+        );
+    }
+
+    #[test]
+    fn workflow_run_request_keeps_runner_policy_out_of_definition_argv() {
+        let request = ClientRequest::WorkflowRun {
+            request_id: crate::RequestId::Integer(8),
+            params: WorkflowRunParams {
+                workflow_name: "release".to_string(),
+                workflow_version: Some("1.2.3".to_string()),
+                arguments: WorkflowArgumentsInput::Argv {
+                    argv: vec!["--topic".to_string(), "launch".to_string()],
+                },
+                non_interactive: true,
+                detached: true,
+                concurrency: Some(3),
+                subscribe: false,
+                node_threads: NodeThreadSubscription::ReferencesOnly,
+            },
+        };
+        assert_eq!(
+            serde_json::to_value(request).expect("serialize workflow run"),
+            json!({
+                "method": "workflow/run",
+                "id": 8,
+                "params": {
+                    "workflowName": "release",
+                    "workflowVersion": "1.2.3",
+                    "arguments": {
+                        "kind": "argv",
+                        "argv": ["--topic", "launch"]
+                    },
+                    "nonInteractive": true,
+                    "detached": true,
+                    "concurrency": 3,
+                    "subscribe": false,
+                    "nodeThreads": "referencesOnly"
+                }
+            })
         );
     }
 

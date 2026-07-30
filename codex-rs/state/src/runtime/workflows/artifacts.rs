@@ -72,23 +72,46 @@ WHERE artifact_id = ?
         .bind(artifact_id)
         .fetch_optional(self.pool())
         .await?;
-        row.map(|row| {
-            Ok(WorkflowArtifactRecord {
-                artifact_id: row.try_get("artifact_id")?,
-                run_id: row.try_get("run_id")?,
-                relative_path: row.try_get("relative_path")?,
-                classification: crate::WorkflowArtifactClassification::parse(
-                    &row.try_get::<String, _>("classification")?,
-                )?,
-                media_type: row.try_get("media_type")?,
-                byte_count: super::runs::to_u64(
-                    row.try_get::<i64, _>("byte_count")?,
-                    "artifact byte count",
-                )?,
-                sha256: row.try_get("sha256")?,
-                created_at_ms: row.try_get("created_at_ms")?,
-            })
-        })
-        .transpose()
+        row.map(artifact_from_row).transpose()
     }
+
+    /// Lists immutable artifact manifests for a run in creation order.
+    pub async fn list_artifacts(
+        &self,
+        run_id: &str,
+    ) -> Result<Vec<WorkflowArtifactRecord>, WorkflowStoreError> {
+        let rows = sqlx::query(
+            r#"
+SELECT artifact_id, run_id, relative_path, classification,
+       media_type, byte_count, sha256, created_at_ms
+FROM workflow_artifacts
+WHERE run_id = ?
+ORDER BY created_at_ms, artifact_id
+            "#,
+        )
+        .bind(run_id)
+        .fetch_all(self.pool())
+        .await?;
+        rows.into_iter().map(artifact_from_row).collect()
+    }
+}
+
+fn artifact_from_row(
+    row: sqlx::sqlite::SqliteRow,
+) -> Result<WorkflowArtifactRecord, WorkflowStoreError> {
+    Ok(WorkflowArtifactRecord {
+        artifact_id: row.try_get("artifact_id")?,
+        run_id: row.try_get("run_id")?,
+        relative_path: row.try_get("relative_path")?,
+        classification: crate::WorkflowArtifactClassification::parse(
+            &row.try_get::<String, _>("classification")?,
+        )?,
+        media_type: row.try_get("media_type")?,
+        byte_count: super::runs::to_u64(
+            row.try_get::<i64, _>("byte_count")?,
+            "artifact byte count",
+        )?,
+        sha256: row.try_get("sha256")?,
+        created_at_ms: row.try_get("created_at_ms")?,
+    })
 }

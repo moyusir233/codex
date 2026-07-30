@@ -43,10 +43,50 @@ async fn create_run(runtime: &StateRuntime, run_id: &str) {
             state_schema_version: 1,
             state: json!({"step": 0}),
             arguments: json!({"message": "hello"}),
+            non_interactive: false,
+            detached: false,
+            concurrency: None,
             created_at_ms: 100,
         })
         .await
         .expect("create workflow run");
+}
+
+#[tokio::test]
+async fn workflow_runner_options_round_trip_through_run_queries() {
+    let home = unique_temp_dir();
+    let runtime = init(&home).await;
+    let store = runtime.workflows();
+    store
+        .create_run(WorkflowRunCreate {
+            run_id: "run-options".to_string(),
+            definition_name: "test-workflow".to_string(),
+            definition_version: "1.0.0".to_string(),
+            state_schema_version: 1,
+            state: json!({"step": 0}),
+            arguments: json!({"message": "hello"}),
+            non_interactive: true,
+            detached: true,
+            concurrency: Some(3),
+            created_at_ms: 100,
+        })
+        .await
+        .expect("create workflow run with options");
+
+    let read = store
+        .read_run("run-options")
+        .await
+        .expect("read workflow run")
+        .expect("workflow run exists");
+    assert!(read.non_interactive);
+    assert!(read.detached);
+    assert_eq!(read.concurrency, Some(3));
+
+    let listed = store.list_runs(None, 10).await.expect("list workflow runs");
+    assert_eq!(listed.len(), 1);
+    assert!(listed[0].non_interactive);
+    assert!(listed[0].detached);
+    assert_eq!(listed[0].concurrency, Some(3));
 }
 
 #[tokio::test]

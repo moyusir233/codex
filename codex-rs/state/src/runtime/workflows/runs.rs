@@ -77,9 +77,10 @@ impl WorkflowStore {
             r#"
 INSERT INTO workflow_runs (
     run_id, definition_name, definition_version, state_schema_version,
-    state_json, arguments_json, status, row_version, next_sequence,
+    state_json, arguments_json, non_interactive, detached, concurrency,
+    status, row_version, next_sequence,
     lease_fence, created_at_ms, updated_at_ms
-) VALUES (?, ?, ?, ?, ?, ?, 'pending', 1, 2, 0, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 1, 2, 0, ?, ?)
             "#,
         )
         .bind(&create.run_id)
@@ -88,6 +89,9 @@ INSERT INTO workflow_runs (
         .bind(i64::from(create.state_schema_version))
         .bind(serde_json::to_string(&create.state)?)
         .bind(serde_json::to_string(&create.arguments)?)
+        .bind(create.non_interactive)
+        .bind(create.detached)
+        .bind(create.concurrency.map(i64::from))
         .bind(create.created_at_ms)
         .bind(create.created_at_ms)
         .execute(&mut *tx)
@@ -125,7 +129,8 @@ INSERT INTO workflow_events (
         let row = sqlx::query(
             r#"
 SELECT run_id, definition_name, definition_version, state_schema_version,
-       state_json, arguments_json, status, output_json, error_code,
+       state_json, arguments_json, non_interactive, detached, concurrency,
+       status, output_json, error_code,
        wake_json, cancellation_requested_at_ms, deadline_ms,
        row_version, next_sequence, lease_owner, lease_expires_at_ms,
        lease_fence, created_at_ms, updated_at_ms
@@ -148,7 +153,8 @@ WHERE run_id = ?
         let rows = sqlx::query(
             r#"
 SELECT run_id, definition_name, definition_version, state_schema_version,
-       state_json, arguments_json, status, output_json, error_code,
+       state_json, arguments_json, non_interactive, detached, concurrency,
+       status, output_json, error_code,
        wake_json, cancellation_requested_at_ms, deadline_ms,
        row_version, next_sequence, lease_owner, lease_expires_at_ms,
        lease_fence, created_at_ms, updated_at_ms
@@ -280,6 +286,12 @@ pub(super) fn run_from_row(
         )?,
         state: serde_json::from_str(&row.try_get::<String, _>("state_json")?)?,
         arguments: serde_json::from_str(&row.try_get::<String, _>("arguments_json")?)?,
+        non_interactive: row.try_get("non_interactive")?,
+        detached: row.try_get("detached")?,
+        concurrency: row
+            .try_get::<Option<i64>, _>("concurrency")?
+            .map(|value| to_u32(value, "workflow concurrency"))
+            .transpose()?,
         status: WorkflowRunStatus::parse(&row.try_get::<String, _>("status")?)?,
         output: output_json
             .map(|value| serde_json::from_str(&value))

@@ -35,6 +35,7 @@ use codex_thread_store::ReadThreadParams;
 use codex_thread_store::ThreadStoreError;
 use codex_workflow_extension::ConfirmedHistoryDeletion;
 use codex_workflow_extension::EffectKey;
+use codex_workflow_extension::NodeApprovals;
 use codex_workflow_extension::NodeInput;
 use codex_workflow_extension::NodeKey;
 use codex_workflow_extension::NodeSpec;
@@ -45,6 +46,27 @@ use codex_workflow_extension::WorkflowNodeBinding;
 use codex_workflow_extension::WorkflowRunId;
 use pretty_assertions::assert_eq;
 use serde_json::json;
+
+#[test]
+fn detached_and_non_interactive_nodes_require_fail_closed_approvals() -> Result<()> {
+    let inherited = NodeSpec::builder(NodeKey::new("inherited")?).build()?;
+    assert!(super::validate_runner_approval_policy(true, false, &inherited).is_err());
+    assert!(super::validate_runner_approval_policy(false, true, &inherited).is_err());
+
+    let rejected = NodeSpec::builder(NodeKey::new("rejected")?)
+        .approvals(NodeApprovals::RejectWhenDetached)
+        .build()?;
+    super::validate_runner_approval_policy(true, false, &rejected)?;
+    super::validate_runner_approval_policy(false, true, &rejected)?;
+
+    let never = NodeSpec::builder(NodeKey::new("never")?)
+        .approvals(NodeApprovals::Policy(
+            codex_protocol::protocol::AskForApproval::Never,
+        ))
+        .build()?;
+    super::validate_runner_approval_policy(true, true, &never)?;
+    Ok(())
+}
 use tempfile::TempDir;
 use tokio::sync::mpsc;
 
@@ -114,6 +136,9 @@ async fn extension_order_restores_workflow_binding_before_skills_when_launches_a
             state_schema_version: 1,
             state: json!({}),
             arguments: json!({}),
+            non_interactive: false,
+            detached: false,
+            concurrency: None,
             created_at_ms: 1,
         })
         .await?;

@@ -207,7 +207,8 @@ WHERE run_id = ? AND node_id = ?
         let rows = sqlx::query(
             r#"
 SELECT run_id, definition_name, definition_version, state_schema_version,
-       state_json, arguments_json, status, output_json, error_code,
+       state_json, arguments_json, non_interactive, detached, concurrency,
+       status, output_json, error_code,
        wake_json, cancellation_requested_at_ms, deadline_ms,
        row_version, next_sequence, lease_owner, lease_expires_at_ms,
        lease_fence, created_at_ms, updated_at_ms
