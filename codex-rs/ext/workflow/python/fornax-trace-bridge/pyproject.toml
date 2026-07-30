@@ -1,0 +1,18 @@
+[project]
+name = "codex-fornax-trace-bridge"
+version = "0.1.0"
+description = "Optional experimental Fornax trace bridge for Codex workflows"
+requires-python = ">=3.10"
+dependencies = [
+    "bytedance.fornax==1.0.46",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[[tool.uv.index]]
+name = "bytedance"
+url = "https://bytedpypi.byted.org/simple/"
+default = true
