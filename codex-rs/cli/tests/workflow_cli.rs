@@ -234,10 +234,19 @@ async fn workflow_remote_run_streams_clean_ndjson_and_resume_commands() -> Resul
         initialize_fake_app_server(&mut websocket).await;
         let run = read_json(&mut websocket).await;
         assert_eq!(run["method"], "workflow/run");
-        assert_eq!(run["params"]["workflowName"], "release");
+        assert_eq!(run["params"]["workflowName"], "prompt-review");
         assert_eq!(
             run["params"]["arguments"]["argv"],
-            json!(["--topic", "launch"])
+            json!([
+                "--prompt-key",
+                "demo.prompt",
+                "--reviewers",
+                "3",
+                "--lark-users",
+                "ou_a,ou_b",
+                "--lark-chat-id",
+                "oc_review"
+            ])
         );
         assert_eq!(run["params"]["subscribe"], true);
         write_json(
@@ -287,9 +296,15 @@ async fn workflow_remote_run_streams_clean_ndjson_and_resume_commands() -> Resul
                 "--json",
                 "--app-server",
                 &endpoint,
-                "release",
-                "--topic",
-                "launch",
+                "prompt-review",
+                "--prompt-key",
+                "demo.prompt",
+                "--reviewers",
+                "3",
+                "--lark-users",
+                "ou_a,ou_b",
+                "--lark-chat-id",
+                "oc_review",
             ])
             .output()
     })
@@ -312,6 +327,26 @@ async fn workflow_remote_run_streams_clean_ndjson_and_resume_commands() -> Resul
         values.last().expect("result")["run"]["artifacts"][0]["artifactId"],
         "wfa_01"
     );
+    Ok(())
+}
+
+#[test]
+fn workflow_example_embedded_launch_fails_closed_without_live_capabilities() -> Result<()> {
+    let codex_home = TempDir::new()?;
+    let mut cmd = codex_command(codex_home.path())?;
+    cmd.args([
+        "workflow",
+        "prompt-review",
+        "--prompt-key",
+        "demo.prompt",
+        "--lark-users",
+        "ou_a",
+        "--lark-chat-id",
+        "oc_review",
+    ])
+    .assert()
+    .code(1)
+    .stderr(contains("requires unavailable capabilities"));
     Ok(())
 }
 
