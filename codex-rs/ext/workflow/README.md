@@ -28,6 +28,24 @@ returns a `NodeHandle` whose thread ID can be resumed by the normal
 graphs through persisted dependencies. A node's explicit `SkillPolicy` is an
 allow-list, not a filesystem sandbox.
 
+## Stability contract
+
+The Workflows feature, app-server methods, bundled `prompt-review` definition,
+and external Fornax/Lark adapters remain opt-in experimental. The Rust v1
+authoring contract is narrower: typed definitions and metadata, registry
+construction and resolution, reducer checkpoints/transitions,
+`WorkflowContext`, node specification/client/handle types, validated IDs, and
+their public errors. Those types are covered by the external compile test and
+the restart E2E.
+
+Public host/store/scheduler/recovery wiring, prepared-turn and outbox types,
+event-retention details, deletion adapters, external CLI/bridge schemas, and
+the example capability composition are implementation or experimental
+surfaces. Their current visibility supports composition and testing; it is not
+a v1 compatibility promise. New author code should depend on the authoring
+contract and inject capabilities through `WorkflowContext`, not implement
+storage or host internals.
+
 ## Lifecycle and persistence
 
 Run, node, attempt, effect, interaction, external correlation, and event rows
@@ -173,9 +191,14 @@ upload. The bridge is loopback-only, refuses proxies/redirects, authenticates
 every request, and requires private descriptor/journal files.
 
 A binary predating persisted `SkillVisibilityPolicy` is not a safe rollback
-for constrained nodes. Disable the experimental Workflows feature to stop new
-runs and recovery effects, but retain `workflows_1.sqlite`, artifacts, bridge
-journal, and rollouts for repair/resume.
+for constrained nodes. The first safe source checkpoint in this implementation
+lineage is commit `c6450411d` (`feat(workflow): persist resolved skill
+capabilities`); a release must map its version to a build containing that
+checkpoint or later workflow safety changes. Workflow database migrations
+tolerate a newer applied schema, but that storage compatibility does not make a
+pre-policy binary authorization-safe. Disable the experimental Workflows
+feature to stop new runs and recovery effects, but retain
+`workflows_1.sqlite`, artifacts, bridge journal, and rollouts for repair/resume.
 
 ## Local testing
 

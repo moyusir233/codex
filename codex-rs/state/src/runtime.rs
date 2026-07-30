@@ -640,17 +640,23 @@ pub async fn sqlite_integrity_check(path: &Path) -> anyhow::Result<Vec<String>> 
 mod tests {
     use super::StateRuntime;
     use super::open_state_sqlite;
+    use super::open_workflows_sqlite;
     use super::runtime_state_migrator;
+    use super::runtime_workflows_migrator;
     use super::sqlite_integrity_check;
     use super::state_db_path;
     use super::test_support::unique_temp_dir;
+    use super::workflows_db_path;
     use crate::DB_INIT_METRIC;
     use crate::DbTelemetry;
     use crate::migrations::STATE_MIGRATOR;
+    use crate::migrations::WORKFLOWS_MIGRATOR;
     use pretty_assertions::assert_eq;
     use sqlx::SqlitePool;
     use sqlx::migrate::MigrateError;
+    use sqlx::migrate::Migrator;
     use sqlx::sqlite::SqliteConnectOptions;
+    use std::borrow::Cow;
     use std::collections::BTreeMap;
     use std::collections::BTreeSet;
     use std::path::Path;
@@ -715,6 +721,24 @@ mod tests {
         )
         .await
         .expect("open sqlite pool")
+    }
+
+    fn workflow_migrator_through(version: i64) -> Migrator {
+        Migrator {
+            migrations: Cow::Owned(
+                WORKFLOWS_MIGRATOR
+                    .migrations
+                    .iter()
+                    .filter(|migration| migration.version <= version)
+                    .cloned()
+                    .collect(),
+            ),
+            ignore_missing: WORKFLOWS_MIGRATOR.ignore_missing,
+            locking: WORKFLOWS_MIGRATOR.locking,
+            no_tx: WORKFLOWS_MIGRATOR.no_tx,
+            table_name: WORKFLOWS_MIGRATOR.table_name.clone(),
+            create_schemas: WORKFLOWS_MIGRATOR.create_schemas.clone(),
+        }
     }
 
     #[tokio::test]
@@ -792,6 +816,120 @@ mod tests {
         )
         .await
         .expect("runtime migrator should tolerate newer applied migrations");
+        tolerant_pool.close().await;
+
+        let _ = tokio::fs::remove_dir_all(codex_home).await;
+    }
+
+    #[tokio::test]
+    async fn open_workflows_sqlite_upgrades_existing_v3_schema() {
+        let codex_home = unique_temp_dir();
+        tokio::fs::create_dir_all(&codex_home)
+            .await
+            .expect("create codex home");
+        let workflows_path = workflows_db_path(codex_home.as_path());
+        let legacy_pool = SqlitePool::connect_with(
+            SqliteConnectOptions::new()
+                .filename(&workflows_path)
+                .create_if_missing(true),
+        )
+        .await
+        .expect("open workflows db");
+        workflow_migrator_through(/*version*/ 3)
+            .run(&legacy_pool)
+            .await
+            .expect("apply legacy workflow schema");
+        legacy_pool.close().await;
+
+        let current_migrator = runtime_workflows_migrator();
+        let current_pool = open_workflows_sqlite(
+            workflows_path.as_path(),
+            &current_migrator,
+            /*telemetry_override*/ None,
+        )
+        .await
+        .expect("upgrade workflow schema");
+        let runner_columns = sqlx::query_scalar::<_, String>(
+            "SELECT name FROM pragma_table_info('workflow_runs') \
+             WHERE name IN ('non_interactive', 'detached', 'concurrency') ORDER BY name",
+        )
+        .fetch_all(&current_pool)
+        .await
+        .expect("read runner columns");
+        assert_eq!(
+            runner_columns,
+            vec![
+                "concurrency".to_string(),
+                "detached".to_string(),
+                "non_interactive".to_string(),
+            ]
+        );
+        let integration_tables = sqlx::query_scalar::<_, String>(
+            "SELECT name FROM sqlite_master WHERE type = 'table' \
+             AND name IN ('workflow_fornax_traces', 'workflow_lark_interactions') ORDER BY name",
+        )
+        .fetch_all(&current_pool)
+        .await
+        .expect("read integration tables");
+        assert_eq!(
+            integration_tables,
+            vec![
+                "workflow_fornax_traces".to_string(),
+                "workflow_lark_interactions".to_string(),
+            ]
+        );
+        current_pool.close().await;
+
+        let _ = tokio::fs::remove_dir_all(codex_home).await;
+    }
+
+    #[tokio::test]
+    async fn open_workflows_sqlite_tolerates_newer_applied_migrations() {
+        let codex_home = unique_temp_dir();
+        tokio::fs::create_dir_all(&codex_home)
+            .await
+            .expect("create codex home");
+        let workflows_path = workflows_db_path(codex_home.as_path());
+        let pool = SqlitePool::connect_with(
+            SqliteConnectOptions::new()
+                .filename(&workflows_path)
+                .create_if_missing(true),
+        )
+        .await
+        .expect("open workflows db");
+        WORKFLOWS_MIGRATOR
+            .run(&pool)
+            .await
+            .expect("apply current workflow schema");
+        sqlx::query(
+            "INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(9_999_i64)
+        .bind("future workflow migration")
+        .bind(true)
+        .bind(vec![1_u8, 2, 3, 4])
+        .bind(1_i64)
+        .execute(&pool)
+        .await
+        .expect("insert future workflow migration record");
+        pool.close().await;
+
+        let strict_pool = open_db_pool(workflows_path.as_path()).await;
+        let strict_err = WORKFLOWS_MIGRATOR
+            .run(&strict_pool)
+            .await
+            .expect_err("strict migrator should reject newer applied migrations");
+        assert!(matches!(strict_err, MigrateError::VersionMissing(9_999)));
+        strict_pool.close().await;
+
+        let tolerant_migrator = runtime_workflows_migrator();
+        let tolerant_pool = open_workflows_sqlite(
+            workflows_path.as_path(),
+            &tolerant_migrator,
+            /*telemetry_override*/ None,
+        )
+        .await
+        .expect("runtime workflow migrator should tolerate newer applied migrations");
         tolerant_pool.close().await;
 
         let _ = tokio::fs::remove_dir_all(codex_home).await;

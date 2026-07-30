@@ -8,7 +8,7 @@ pub(crate) static LOGS_MIGRATOR: Migrator = sqlx::migrate!("./logs_migrations");
 pub(crate) static GOALS_MIGRATOR: Migrator = sqlx::migrate!("./goals_migrations");
 pub(crate) static MEMORIES_MIGRATOR: Migrator = sqlx::migrate!("./memory_migrations");
 pub(crate) static THREAD_HISTORY_MIGRATOR: Migrator = sqlx::migrate!("./thread_history_migrations");
-// Workflow migrations currently include scheduler controls through v3.
+// Workflow migrations currently include durable Lark interactions through v6.
 pub(crate) static WORKFLOWS_MIGRATOR: Migrator = sqlx::migrate!("./workflows_migrations");
 
 /// Allow an older Codex binary to open a database that has already been
