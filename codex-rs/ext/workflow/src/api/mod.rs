@@ -4,6 +4,7 @@ mod context;
 mod definition;
 mod error;
 mod ids;
+mod interaction;
 mod node;
 mod transition;
 
@@ -26,6 +27,8 @@ pub use ids::WorkflowName;
 pub use ids::WorkflowRunId;
 pub use ids::WorkflowSequence;
 pub use ids::WorkflowVersion;
+pub use interaction::HumanInteractionOutcome;
+pub use interaction::HumanInteractionRequest;
 pub use node::BackoffPolicy;
 pub use node::CancellationReason;
 pub use node::DependencyPolicy;
