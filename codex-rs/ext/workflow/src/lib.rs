@@ -8,6 +8,7 @@ pub mod api;
 pub mod extension;
 #[doc(hidden)]
 pub mod feasibility;
+pub mod integrations;
 pub mod registry;
 pub mod runtime;
 
