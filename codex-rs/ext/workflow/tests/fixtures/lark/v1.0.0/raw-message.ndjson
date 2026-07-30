@@ -1,0 +1,1 @@
+{"schema":"2.0","header":{"event_id":"evt_demo_01","event_type":"im.message.receive_v1","create_time":"1775000001000","app_id":"cli_demo"},"event":{"message":{"chat_id":"oc_demo_01","content":"{\"text\":\"approved [wf:demo]\"}","message_id":"om_demo_reply_01","message_type":"text","thread_id":"omt_demo_01"},"sender":{"sender_id":{"open_id":"ou_allowed_01"},"sender_type":"user"}}}
