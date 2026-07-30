@@ -102,6 +102,7 @@ impl WorkflowRecovery {
                         self.service.cancellation_signals(),
                         self.fornax.as_ref().map(Arc::clone),
                         self.lark.as_ref().map(Arc::clone),
+                        None,
                     );
                     if !matches!(
                         driver.step_once(run_id, now_ms).await?,

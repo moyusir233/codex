@@ -5,6 +5,7 @@ use std::sync::atomic::Ordering;
 use tokio::sync::Notify;
 
 use crate::api::WorkflowRunId;
+use crate::example::PromptReviewCapability;
 use crate::integrations::fornax::FornaxWorkflowClient;
 use crate::runtime::LarkInteractionService;
 
@@ -88,6 +89,12 @@ impl<'a> WorkflowContext<'a> {
     pub fn lark(&self) -> Option<&LarkInteractionService> {
         self.parts.lark.as_deref()
     }
+
+    /// Returns the narrow capability used by the registered prompt-review
+    /// reference workflow.
+    pub fn prompt_review(&self) -> Option<&dyn PromptReviewCapability> {
+        self.parts.prompt_review.as_deref()
+    }
 }
 
 pub(crate) struct WorkflowContextParts {
@@ -95,6 +102,7 @@ pub(crate) struct WorkflowContextParts {
     cancellation: WorkflowCancellation,
     fornax: Option<Arc<FornaxWorkflowClient>>,
     lark: Option<Arc<LarkInteractionService>>,
+    prompt_review: Option<Arc<dyn PromptReviewCapability>>,
 }
 
 impl WorkflowContextParts {
@@ -103,12 +111,14 @@ impl WorkflowContextParts {
         cancellation: WorkflowCancellation,
         fornax: Option<Arc<FornaxWorkflowClient>>,
         lark: Option<Arc<LarkInteractionService>>,
+        prompt_review: Option<Arc<dyn PromptReviewCapability>>,
     ) -> Self {
         Self {
             run_id,
             cancellation,
             fornax,
             lark,
+            prompt_review,
         }
     }
 }

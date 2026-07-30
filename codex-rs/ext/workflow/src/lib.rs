@@ -5,6 +5,7 @@
 //! journal-backed capabilities.
 
 pub mod api;
+pub mod example;
 pub mod extension;
 #[doc(hidden)]
 pub mod feasibility;
@@ -73,6 +74,14 @@ pub use extension::WorkflowBindingFault;
 pub use extension::WorkflowExtension;
 pub use extension::WorkflowExtensionConfig;
 pub use extension::install_with_backend;
+pub use example::PromptReviewCapability;
+pub use example::PromptReviewCapabilityFuture;
+pub use example::PromptReviewArguments;
+pub use example::PromptReviewOutput;
+pub use example::PromptReviewPrepared;
+pub use example::PromptReviewReview;
+pub use example::PromptReviewWorkflow;
+pub use example::default_registry;
 pub use registry::RegistryError;
 pub use registry::WorkflowCheckpoint;
 pub use registry::WorkflowDefinition;

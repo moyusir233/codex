@@ -40,6 +40,7 @@ pub struct WorkflowDriver {
     cancellation_signals: CancellationSignals,
     fornax: Option<Arc<FornaxWorkflowClient>>,
     lark: Option<Arc<super::LarkInteractionService>>,
+    prompt_review: Option<Arc<dyn crate::PromptReviewCapability>>,
 }
 
 impl WorkflowDriver {
@@ -57,6 +58,7 @@ impl WorkflowDriver {
             cancellation_signals: CancellationSignals::default(),
             fornax: None,
             lark: None,
+            prompt_review: None,
         }
     }
 
@@ -68,6 +70,7 @@ impl WorkflowDriver {
         cancellation_signals: CancellationSignals,
         fornax: Option<Arc<FornaxWorkflowClient>>,
         lark: Option<Arc<super::LarkInteractionService>>,
+        prompt_review: Option<Arc<dyn crate::PromptReviewCapability>>,
     ) -> Self {
         Self {
             store,
@@ -77,6 +80,7 @@ impl WorkflowDriver {
             cancellation_signals,
             fornax,
             lark,
+            prompt_review,
         }
     }
 
@@ -87,6 +91,14 @@ impl WorkflowDriver {
 
     pub fn with_lark_service(mut self, service: Arc<super::LarkInteractionService>) -> Self {
         self.lark = Some(service);
+        self
+    }
+
+    pub fn with_prompt_review_capability(
+        mut self,
+        capability: Arc<dyn crate::PromptReviewCapability>,
+    ) -> Self {
+        self.prompt_review = Some(capability);
         self
     }
 
@@ -226,6 +238,7 @@ impl WorkflowDriver {
             cancellation,
             self.fornax.as_ref().map(Arc::clone),
             self.lark.as_ref().map(Arc::clone),
+            self.prompt_review.as_ref().map(Arc::clone),
         );
         let transition = definition
             .step(WorkflowContext::new(&parts), checkpoint)
