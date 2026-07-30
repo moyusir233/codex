@@ -92,6 +92,50 @@ pub enum PreparedUserTurnSubmission {
     BoundaryAlreadyPersisted,
 }
 
+/// Persisted boundary state for one prepared workflow turn.
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PreparedUserTurnHistory {
+    Missing,
+    BoundaryPersisted,
+    Conflict,
+}
+
+/// Inspects persisted rollout boundaries without registering or queueing a turn.
+#[doc(hidden)]
+pub fn inspect_prepared_user_turn_history(
+    items: &[RolloutItem],
+    prepared: &PreparedUserTurn,
+) -> PreparedUserTurnHistory {
+    let mut found = false;
+    for item in items {
+        let RolloutItem::EventMsg(EventMsg::ItemCompleted(completed)) = item else {
+            continue;
+        };
+        let TurnItem::UserMessage(user_message) = &completed.item else {
+            continue;
+        };
+        let Some(marker) = user_message.client_id.as_deref() else {
+            continue;
+        };
+        let Some(observed) = parse_marker(marker) else {
+            continue;
+        };
+        if observed.submission_id != prepared.submission_id {
+            continue;
+        }
+        if observed.input_hash != prepared.input_hash {
+            return PreparedUserTurnHistory::Conflict;
+        }
+        found = true;
+    }
+    if found {
+        PreparedUserTurnHistory::BoundaryPersisted
+    } else {
+        PreparedUserTurnHistory::Missing
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PreparedUserTurnState {
     Queued,

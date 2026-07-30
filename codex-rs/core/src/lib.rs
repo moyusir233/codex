@@ -72,7 +72,11 @@ pub use prepared_user_turn::PreparedUserTurn;
 #[doc(hidden)]
 pub use prepared_user_turn::PreparedUserTurnError;
 #[doc(hidden)]
+pub use prepared_user_turn::PreparedUserTurnHistory;
+#[doc(hidden)]
 pub use prepared_user_turn::PreparedUserTurnSubmission;
+#[doc(hidden)]
+pub use prepared_user_turn::inspect_prepared_user_turn_history;
 mod mcp_openai_file;
 mod mcp_tool_call;
 pub(crate) mod mention_syntax;
