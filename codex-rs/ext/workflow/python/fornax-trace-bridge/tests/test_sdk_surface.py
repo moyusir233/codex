@@ -2,8 +2,7 @@ from importlib.metadata import version
 from inspect import signature
 
 from bytedance.fornax.infra import FornaxClient
-from bytedance.fornax.infra.trace.span import FornaxSpan
-from bytedance.fornax.infra.trace.span import NoopFornaxSpan
+from bytedance.fornax.infra.trace.span import FornaxSpan, NoopFornaxSpan
 
 
 def test_pinned_sdk_exposes_documented_client_surface() -> None:
@@ -31,9 +30,7 @@ def test_pinned_sdk_exposes_documented_client_surface() -> None:
         "child_of",
         "start_time",
     }
-    assert set(signature(FornaxClient.get_span_from_header).parameters) == {
-        "span_header"
-    }
+    assert set(signature(FornaxClient.get_span_from_header).parameters) == {"span_header"}
     assert not signature(FornaxClient.close_trace).parameters
 
 
@@ -49,3 +46,12 @@ def test_pinned_sdk_exposes_documented_span_surface() -> None:
     ):
         assert hasattr(FornaxSpan, member)
     assert isinstance(NoopFornaxSpan, FornaxSpan)
+
+    assert set(signature(FornaxSpan.set_tag).parameters) == {"self", "tagKV"}
+    assert set(signature(FornaxSpan.set_baggage).parameters) == {"self", "baggageKV"}
+    assert set(signature(FornaxSpan.set_input).parameters) == {"self", "_input"}
+    assert set(signature(FornaxSpan.set_output).parameters) == {"self", "output"}
+    assert set(signature(FornaxSpan.set_finish_time).parameters) == {
+        "self",
+        "finish_time_stamp",
+    }
