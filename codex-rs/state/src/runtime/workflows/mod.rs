@@ -1,4 +1,5 @@
 mod artifacts;
+mod attempts;
 mod effects;
 mod events;
 mod interactions;

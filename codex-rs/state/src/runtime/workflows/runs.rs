@@ -24,6 +24,8 @@ pub enum WorkflowStoreError {
     InteractionConflict,
     #[error("workflow node key or identifier already exists")]
     DuplicateNode,
+    #[error("workflow node attempt identifier or submission already exists")]
+    DuplicateAttempt,
     #[error("workflow artifact identifier or path already exists")]
     DuplicateArtifact,
     #[error(transparent)]

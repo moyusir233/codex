@@ -210,6 +210,94 @@ pub struct WorkflowNodeRecord {
     pub updated_at_ms: i64,
 }
 
+/// Durable lifecycle state for one immutable node attempt.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkflowNodeAttemptStatus {
+    Planned,
+    Submitted,
+    Running,
+    Succeeded,
+    Failed,
+    Interrupted,
+    Cancelled,
+    Ambiguous,
+}
+
+impl WorkflowNodeAttemptStatus {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Planned => "planned",
+            Self::Submitted => "submitted",
+            Self::Running => "running",
+            Self::Succeeded => "succeeded",
+            Self::Failed => "failed",
+            Self::Interrupted => "interrupted",
+            Self::Cancelled => "cancelled",
+            Self::Ambiguous => "ambiguous",
+        }
+    }
+
+    pub(crate) fn parse(value: &str) -> anyhow::Result<Self> {
+        match value {
+            "planned" => Ok(Self::Planned),
+            "submitted" => Ok(Self::Submitted),
+            "running" => Ok(Self::Running),
+            "succeeded" => Ok(Self::Succeeded),
+            "failed" => Ok(Self::Failed),
+            "interrupted" => Ok(Self::Interrupted),
+            "cancelled" => Ok(Self::Cancelled),
+            "ambiguous" => Ok(Self::Ambiguous),
+            _ => Err(anyhow::anyhow!("unknown workflow node attempt status")),
+        }
+    }
+
+    pub fn is_terminal(self) -> bool {
+        matches!(
+            self,
+            Self::Succeeded | Self::Failed | Self::Interrupted | Self::Cancelled | Self::Ambiguous
+        )
+    }
+}
+
+/// Parameters for recording a prepared node attempt before host submission.
+#[derive(Clone, Debug)]
+pub struct WorkflowNodeAttemptCreate {
+    pub attempt_id: String,
+    pub node_id: String,
+    pub submission_id: String,
+    pub input_hash: String,
+    pub created_at_ms: i64,
+}
+
+/// One immutable node-attempt snapshot.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkflowNodeAttemptRecord {
+    pub attempt_id: String,
+    pub run_id: String,
+    pub node_id: String,
+    pub attempt_number: u32,
+    pub submission_id: String,
+    pub input_hash: String,
+    pub turn_id: Option<String>,
+    pub status: WorkflowNodeAttemptStatus,
+    pub started_at_ms: Option<i64>,
+    pub completed_at_ms: Option<i64>,
+    pub error_code: Option<String>,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+}
+
+/// CAS update for one node attempt.
+#[derive(Clone, Debug)]
+pub struct WorkflowNodeAttemptTransition {
+    pub expected_status: WorkflowNodeAttemptStatus,
+    pub status: WorkflowNodeAttemptStatus,
+    pub turn_id: Option<String>,
+    pub error_code: Option<String>,
+    pub updated_at_ms: i64,
+}
+
 /// State of a deduplicated workflow interaction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WorkflowInteractionState {

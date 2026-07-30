@@ -11,6 +11,9 @@ use crate::WorkflowEffectUpdate;
 use crate::WorkflowInteractionPlan;
 use crate::WorkflowInteractionPlanOutcome;
 use crate::WorkflowInteractionState;
+use crate::WorkflowNodeAttemptCreate;
+use crate::WorkflowNodeAttemptStatus;
+use crate::WorkflowNodeAttemptTransition;
 use crate::WorkflowNodeCreate;
 use crate::WorkflowNodeStatus;
 use crate::WorkflowRunCreate;
@@ -384,6 +387,111 @@ async fn workflow_node_thread_binding_is_unique_idempotent_and_durable() {
         Some("thread-primary".to_string())
     );
     reopened.close().await;
+    let _ = tokio::fs::remove_dir_all(home).await;
+}
+
+#[tokio::test]
+async fn workflow_node_attempts_append_and_transition_without_overwriting_history() {
+    let home = unique_temp_dir();
+    let runtime = init(&home).await;
+    create_run(runtime.as_ref(), "run-attempts").await;
+    let store = runtime.workflows();
+    store
+        .create_node(
+            "run-attempts",
+            WorkflowNodeCreate {
+                node_id: "node-attempts".to_string(),
+                node_key: "primary".to_string(),
+                spec: json!({}),
+                status: WorkflowNodeStatus::Ready,
+                created_at_ms: 101,
+            },
+            &[],
+        )
+        .await
+        .expect("create node");
+    let first = store
+        .create_node_attempt(
+            "run-attempts",
+            WorkflowNodeAttemptCreate {
+                attempt_id: "attempt-1".to_string(),
+                node_id: "node-attempts".to_string(),
+                submission_id: "submission-1".to_string(),
+                input_hash: "abc".to_string(),
+                created_at_ms: 102,
+            },
+        )
+        .await
+        .expect("create first attempt");
+    assert_eq!(first.attempt_number, 1);
+    let submitted = store
+        .transition_node_attempt(
+            "attempt-1",
+            WorkflowNodeAttemptTransition {
+                expected_status: WorkflowNodeAttemptStatus::Planned,
+                status: WorkflowNodeAttemptStatus::Submitted,
+                turn_id: Some("turn-1".to_string()),
+                error_code: None,
+                updated_at_ms: 103,
+            },
+        )
+        .await
+        .expect("submit first attempt");
+    assert_eq!(submitted.started_at_ms, Some(103));
+    let succeeded = store
+        .transition_node_attempt(
+            "attempt-1",
+            WorkflowNodeAttemptTransition {
+                expected_status: WorkflowNodeAttemptStatus::Submitted,
+                status: WorkflowNodeAttemptStatus::Succeeded,
+                turn_id: Some("turn-1".to_string()),
+                error_code: None,
+                updated_at_ms: 104,
+            },
+        )
+        .await
+        .expect("complete first attempt");
+    assert_eq!(succeeded.completed_at_ms, Some(104));
+    assert!(matches!(
+        store
+            .transition_node_attempt(
+                "attempt-1",
+                WorkflowNodeAttemptTransition {
+                    expected_status: WorkflowNodeAttemptStatus::Submitted,
+                    status: WorkflowNodeAttemptStatus::Failed,
+                    turn_id: Some("turn-1".to_string()),
+                    error_code: Some("late".to_string()),
+                    updated_at_ms: 105,
+                },
+            )
+            .await
+            .expect_err("terminal evidence cannot be overwritten"),
+        WorkflowStoreError::StaleWrite
+    ));
+
+    let second = store
+        .create_node_attempt(
+            "run-attempts",
+            WorkflowNodeAttemptCreate {
+                attempt_id: "attempt-2".to_string(),
+                node_id: "node-attempts".to_string(),
+                submission_id: "submission-2".to_string(),
+                input_hash: "def".to_string(),
+                created_at_ms: 106,
+            },
+        )
+        .await
+        .expect("append second attempt");
+    assert_eq!(second.attempt_number, 2);
+    assert_eq!(
+        store
+            .read_node_attempt_by_turn_id("node-attempts", "turn-1")
+            .await
+            .expect("read by turn"),
+        Some(succeeded)
+    );
+
+    runtime.close().await;
     let _ = tokio::fs::remove_dir_all(home).await;
 }
 
