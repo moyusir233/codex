@@ -26,6 +26,7 @@ pub(super) struct WorkflowServiceInner {
     pub(super) registry: Arc<crate::WorkflowRegistry>,
     pub(super) failure_injector: FailureInjector,
     pub(super) cancellation_signals: CancellationSignals,
+    pub(super) prompt_review: Option<Arc<dyn crate::PromptReviewCapability>>,
 }
 
 impl WorkflowService {
@@ -58,8 +59,21 @@ impl WorkflowService {
                 registry,
                 failure_injector,
                 cancellation_signals: CancellationSignals::default(),
+                prompt_review: None,
             }),
         }
+    }
+
+    /// Installs the preflighted capability used by the registered reference
+    /// workflow. This must be called before the service is shared.
+    pub fn with_prompt_review_capability(
+        mut self,
+        capability: Arc<dyn crate::PromptReviewCapability>,
+    ) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .unwrap_or_else(|| panic!("workflow service was shared before configuration"))
+            .prompt_review = Some(capability);
+        self
     }
 
     pub fn node_host_slot(&self) -> &WorkflowNodeHostSlot {
@@ -83,6 +97,10 @@ impl WorkflowService {
 
     pub fn failure_injector(&self) -> &FailureInjector {
         &self.inner.failure_injector
+    }
+
+    pub fn prompt_review_capability(&self) -> Option<Arc<dyn crate::PromptReviewCapability>> {
+        self.inner.prompt_review.as_ref().map(Arc::clone)
     }
 
     pub(crate) fn cancellation_signals(&self) -> CancellationSignals {

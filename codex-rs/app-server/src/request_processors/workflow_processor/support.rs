@@ -114,12 +114,15 @@ impl WorkflowRequestProcessor {
         };
         let subscriptions = self.subscriptions.clone();
         tokio::spawn(async move {
-            let driver = WorkflowDriver::new(
+            let mut driver = WorkflowDriver::new(
                 service.store().clone(),
                 service.registry(),
                 format!("app-server-{}", uuid::Uuid::now_v7()),
                 30_000,
             );
+            if let Some(capability) = service.prompt_review_capability() {
+                driver = driver.with_prompt_review_capability(capability);
+            }
             if let Err(error) = driver
                 .drive_until_blocked(
                     run_id,

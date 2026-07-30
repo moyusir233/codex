@@ -149,6 +149,19 @@ impl WorkflowRequestProcessor {
         let definition = registry
             .resolve(&name, version.as_ref())
             .map_err(|error| workflow_invalid("workflow_not_found", error.to_string()))?;
+        if !definition.metadata().required_capabilities().is_empty()
+            && service.prompt_review_capability().is_none()
+        {
+            return Err(workflow_invalid(
+                "capability_unavailable",
+                format!(
+                    "workflow {}@{} requires unavailable capabilities: {}",
+                    definition.metadata().name(),
+                    definition.metadata().version(),
+                    definition.metadata().required_capabilities().join(", ")
+                ),
+            ));
+        }
         let arguments = match params.arguments {
             WorkflowArgumentsInput::Argv { argv } => definition
                 .parse_cli(&argv.into_iter().map(OsString::from).collect::<Vec<_>>())

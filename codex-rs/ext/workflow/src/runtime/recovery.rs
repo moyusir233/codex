@@ -45,6 +45,7 @@ pub struct WorkflowRecovery {
     lease_duration_ms: i64,
     fornax: Option<Arc<FornaxWorkflowClient>>,
     lark: Option<Arc<super::LarkInteractionService>>,
+    prompt_review: Option<Arc<dyn crate::PromptReviewCapability>>,
 }
 
 impl WorkflowRecovery {
@@ -54,6 +55,7 @@ impl WorkflowRecovery {
         owner: impl Into<String>,
         lease_duration_ms: i64,
     ) -> Self {
+        let prompt_review = service.prompt_review_capability();
         Self {
             service,
             registry,
@@ -61,6 +63,7 @@ impl WorkflowRecovery {
             lease_duration_ms: lease_duration_ms.max(1),
             fornax: None,
             lark: None,
+            prompt_review,
         }
     }
 
@@ -102,7 +105,7 @@ impl WorkflowRecovery {
                         self.service.cancellation_signals(),
                         self.fornax.as_ref().map(Arc::clone),
                         self.lark.as_ref().map(Arc::clone),
-                        None,
+                        self.prompt_review.as_ref().map(Arc::clone),
                     );
                     if !matches!(
                         driver.step_once(run_id, now_ms).await?,

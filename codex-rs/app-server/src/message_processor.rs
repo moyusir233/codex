@@ -266,9 +266,10 @@ impl MessageProcessor {
         let goal_service = Arc::new(GoalService::new());
         let workflow_node_host_slot = codex_workflow_extension::WorkflowNodeHostSlot::new();
         let workflow_service = state_db.as_ref().map(|state| {
-            Arc::new(codex_workflow_extension::WorkflowService::new(
+            Arc::new(codex_workflow_extension::WorkflowService::new_with_registry(
                 state.workflows().clone(),
                 workflow_node_host_slot.clone(),
+                built_in_workflow_registry(),
             ))
         });
         let workflow_subscriptions = workflow_service.as_ref().map(|service| {
@@ -1597,6 +1598,35 @@ impl MessageProcessor {
     }
 }
 
+fn built_in_workflow_registry() -> Arc<codex_workflow_extension::WorkflowRegistry> {
+    Arc::new(
+        codex_workflow_extension::default_registry()
+            .unwrap_or_else(|error| panic!("built-in workflow registry is invalid: {error}")),
+    )
+}
+
 #[cfg(test)]
 #[path = "message_processor_tracing_tests.rs"]
 mod message_processor_tracing_tests;
+
+#[cfg(test)]
+mod workflow_example_tests {
+    use super::*;
+
+    #[test]
+    fn workflow_example_registry_installs_prompt_review_default() {
+        let registry = built_in_workflow_registry();
+        let name =
+            codex_workflow_extension::WorkflowName::new("prompt-review").expect("workflow name");
+        let definition = registry.resolve(&name, None).expect("default definition");
+        assert_eq!(definition.metadata().version().to_string(), "1.0.0");
+        assert!(definition.metadata().is_default());
+        assert!(
+            definition
+                .metadata()
+                .required_capabilities()
+                .iter()
+                .any(|capability| capability == "lark.human-interaction")
+        );
+    }
+}
