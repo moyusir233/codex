@@ -211,6 +211,18 @@ where
 {
     fn on_turn_start<'a>(&'a self, input: TurnStartInput<'a>) -> ExtensionFuture<'a, ()> {
         Box::pin(async move {
+            if let Some(binding) = input.thread_store.get::<WorkflowNodeBinding>()
+                && let Err(error) = self
+                    .service
+                    .observe_turn_start(&binding, input.turn_id)
+                    .await
+            {
+                tracing::warn!(
+                    workflow_run_id = %binding.run_id,
+                    workflow_node_id = %binding.node_id,
+                    "failed to classify workflow turn ownership: {error}"
+                );
+            }
             trace_lifecycle("turn_start", input.thread_store, Some(input.turn_id));
         })
     }

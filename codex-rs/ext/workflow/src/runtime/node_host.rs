@@ -21,12 +21,22 @@ pub trait WorkflowNodeHost: Send + Sync {
         request: MaterializeNodeRequest,
     ) -> NodeHostFuture<'_, MaterializedNode>;
 
+    fn find_materialized_nodes(
+        &self,
+        binding: WorkflowNodeBinding,
+    ) -> NodeHostFuture<'_, Vec<ThreadId>>;
+
     fn submit_prepared_turn(
         &self,
         request: PreparedTurnRequest,
     ) -> NodeHostFuture<'_, SubmittedTurn>;
 
     fn await_terminal_turn(&self, request: AwaitTurnRequest) -> NodeHostFuture<'_, NodeTurnResult>;
+
+    fn recover_prepared_turn(
+        &self,
+        request: RecoverTurnRequest,
+    ) -> NodeHostFuture<'_, RecoveredTurnState>;
 
     fn steer(&self, request: SteerTurnRequest) -> NodeHostFuture<'_, ()>;
 
@@ -111,6 +121,21 @@ pub struct SubmittedTurn {
 pub struct AwaitTurnRequest {
     pub thread_id: ThreadId,
     pub turn_id: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct RecoverTurnRequest {
+    pub thread_id: ThreadId,
+    pub submission_id: String,
+    pub input_hash: [u8; 32],
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum RecoveredTurnState {
+    NoBoundary,
+    Unterminated,
+    Terminal(NodeTurnResult),
+    Conflict,
 }
 
 #[derive(Clone, Debug)]
