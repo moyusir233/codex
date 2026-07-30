@@ -1,0 +1,12 @@
+{
+  "operationId": "00000000-0000-4000-8000-000000000002",
+  "record": {
+    "type": "input",
+    "value": {
+      "type": "digest",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "byteCount": 123,
+      "classification": "sensitive"
+    }
+  }
+}

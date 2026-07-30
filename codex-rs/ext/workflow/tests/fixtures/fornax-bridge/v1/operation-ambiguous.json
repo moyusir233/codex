@@ -1,0 +1,10 @@
+{
+  "operationId": "00000000-0000-4000-8000-000000000001",
+  "route": "/v1/spans",
+  "requestHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "state": "ambiguous",
+  "errorCode": "sdkRejected",
+  "instanceId": "fbi_fixture",
+  "createdAtMs": 1753860000000,
+  "updatedAtMs": 1753860000100
+}

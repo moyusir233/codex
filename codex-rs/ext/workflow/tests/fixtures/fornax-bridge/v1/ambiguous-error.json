@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": "ambiguousMutation",
+    "message": "operation outcome requires a status check",
+    "operationId": "00000000-0000-4000-8000-000000000001",
+    "retry": "afterStatusCheck"
+  }
+}

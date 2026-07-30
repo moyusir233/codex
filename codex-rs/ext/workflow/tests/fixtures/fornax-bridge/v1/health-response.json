@@ -1,0 +1,10 @@
+{
+  "bridgeVersion": "0.1.0",
+  "protocolVersion": 1,
+  "sdkVersion": "1.0.46",
+  "instanceId": "fbi_fixture",
+  "status": "ready",
+  "queueDepth": 0,
+  "activeSpanCount": 1,
+  "orphanedSpanCount": 0
+}
