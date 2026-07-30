@@ -40,6 +40,7 @@ use serde_json::json;
 
 pub struct TestHost {
     threads: Mutex<Vec<ThreadId>>,
+    bindings: Mutex<BTreeMap<String, ThreadId>>,
     submissions: Mutex<BTreeMap<String, [u8; 32]>>,
     recoveries: Mutex<BTreeMap<String, RecoveredTurnState>>,
     cancelled: AtomicBool,
@@ -54,6 +55,7 @@ impl Default for TestHost {
     fn default() -> Self {
         Self {
             threads: Mutex::new(Vec::new()),
+            bindings: Mutex::new(BTreeMap::new()),
             submissions: Mutex::new(BTreeMap::new()),
             recoveries: Mutex::new(BTreeMap::new()),
             cancelled: AtomicBool::new(false),
@@ -96,11 +98,15 @@ impl TestHost {
 impl WorkflowNodeHost for TestHost {
     fn materialize_node(
         &self,
-        _request: MaterializeNodeRequest,
+        request: MaterializeNodeRequest,
     ) -> NodeHostFuture<'_, MaterializedNode> {
         Box::pin(async move {
             let thread_id = ThreadId::new();
             self.threads.lock().expect("threads lock").push(thread_id);
+            self.bindings
+                .lock()
+                .expect("bindings lock")
+                .insert(binding_key(&request.binding), thread_id);
             self.materializations.fetch_add(1, Ordering::AcqRel);
             Ok(MaterializedNode { thread_id })
         })
@@ -108,9 +114,18 @@ impl WorkflowNodeHost for TestHost {
 
     fn find_materialized_nodes(
         &self,
-        _binding: WorkflowNodeBinding,
+        binding: WorkflowNodeBinding,
     ) -> NodeHostFuture<'_, Vec<ThreadId>> {
-        Box::pin(async move { Ok(self.threads()) })
+        Box::pin(async move {
+            let bindings = self.bindings.lock().expect("bindings lock");
+            if let Some(thread_id) = bindings.get(&binding_key(&binding)) {
+                return Ok(vec![*thread_id]);
+            }
+            if bindings.is_empty() {
+                return Ok(self.threads());
+            }
+            Ok(Vec::new())
+        })
     }
 
     fn submit_prepared_turn(
@@ -224,6 +239,10 @@ impl WorkflowNodeHost for TestHost {
             Ok(())
         })
     }
+}
+
+fn binding_key(binding: &WorkflowNodeBinding) -> String {
+    format!("{}/{}", binding.run_id, binding.node_id)
 }
 
 pub async fn runtime() -> (tempfile::TempDir, Arc<StateRuntime>) {
