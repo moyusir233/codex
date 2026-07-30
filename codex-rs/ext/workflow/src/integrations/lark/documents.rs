@@ -32,9 +32,15 @@ impl LarkCli {
         ];
         push_option(&mut args, "--title", request.title.as_deref());
         match &request.parent {
-            Some(DocumentParent::Folder(value)) => push_option(&mut args, "--folder-token", Some(value)),
-            Some(DocumentParent::WikiNode(value)) => push_option(&mut args, "--wiki-node", Some(value)),
-            Some(DocumentParent::WikiSpace(value)) => push_option(&mut args, "--wiki-space", Some(value)),
+            Some(DocumentParent::Folder(value)) => {
+                push_option(&mut args, "--folder-token", Some(value))
+            }
+            Some(DocumentParent::WikiNode(value)) => {
+                push_option(&mut args, "--wiki-node", Some(value))
+            }
+            Some(DocumentParent::WikiSpace(value)) => {
+                push_option(&mut args, "--wiki-space", Some(value))
+            }
             None => {}
         }
         args.extend([OsString::from("--format"), OsString::from("json")]);

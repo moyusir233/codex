@@ -29,10 +29,7 @@ impl LarkInteractionService {
                 .cli
                 .list_chat_messages(&chat_id, page_token.as_deref(), cancelled)?;
             if let Some(message) = page.messages.iter().find(|message| {
-                message_text(message).contains(&format!(
-                    "[wf:{}]",
-                    correlation.correlation_token
-                ))
+                message_text(message).contains(&format!("[wf:{}]", correlation.correlation_token))
             }) {
                 return Ok(Some(message.message_id.as_str().to_string()));
             }

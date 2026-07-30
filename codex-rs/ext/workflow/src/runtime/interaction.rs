@@ -47,11 +47,7 @@ pub struct LarkInteractionService {
 }
 
 impl LarkInteractionService {
-    pub fn new(
-        cli: Arc<LarkCli>,
-        store: WorkflowStore,
-        artifacts: WorkflowArtifactStore,
-    ) -> Self {
+    pub fn new(cli: Arc<LarkCli>, store: WorkflowStore, artifacts: WorkflowArtifactStore) -> Self {
         Self {
             cli,
             store,
@@ -151,7 +147,10 @@ impl LarkInteractionService {
             });
         }
 
-        if let Some(message_id) = self.poll_for_request_marker(interaction_id, cancelled).await? {
+        if let Some(message_id) = self
+            .poll_for_request_marker(interaction_id, cancelled)
+            .await?
+        {
             self.complete_send(
                 &run_id_text,
                 &effect_key,
@@ -165,11 +164,7 @@ impl LarkInteractionService {
                 .await;
         }
 
-        let prompt = format!(
-            "{}\n\n[wf:{}]",
-            request.prompt,
-            token
-        );
+        let prompt = format!("{}\n\n[wf:{}]", request.prompt, token);
         match self.cli.send_message(
             &MessageSendRequest {
                 target: MessageTarget::Chat(request.chat_id),
@@ -190,8 +185,9 @@ impl LarkInteractionService {
                 .await?;
             }
             Err(error) => {
-                if let Some(message_id) =
-                    self.poll_for_request_marker(interaction_id, cancelled).await?
+                if let Some(message_id) = self
+                    .poll_for_request_marker(interaction_id, cancelled)
+                    .await?
                 {
                     self.complete_send(
                         &run_id_text,
@@ -222,7 +218,8 @@ impl LarkInteractionService {
                 }
             }
         }
-        self.refresh_outcome(interaction_id, now_ms, cancelled).await
+        self.refresh_outcome(interaction_id, now_ms, cancelled)
+            .await
     }
 
     pub async fn ingest_event(
@@ -236,7 +233,10 @@ impl LarkInteractionService {
             .await?;
         let mut outcomes = Vec::new();
         for candidate in candidates {
-            if !event.text.contains(&format!("[wf:{}]", candidate.correlation_token)) {
+            if !event
+                .text
+                .contains(&format!("[wf:{}]", candidate.correlation_token))
+            {
                 continue;
             }
             if event.created_at_ms < candidate.watermark_ms
@@ -263,11 +263,7 @@ impl LarkInteractionService {
                 continue;
             }
             let artifact_id = self
-                .write_reply_artifact(
-                    &candidate.run_id,
-                    &candidate.interaction_id,
-                    event,
-                )
+                .write_reply_artifact(&candidate.run_id, &candidate.interaction_id, event)
                 .await?;
             outcomes.push(
                 self.store
@@ -294,7 +290,8 @@ impl LarkInteractionService {
         now_ms: i64,
         cancelled: &AtomicBool,
     ) -> Result<HumanInteractionOutcome, LarkInteractionError> {
-        self.refresh_outcome(interaction_id, now_ms, cancelled).await
+        self.refresh_outcome(interaction_id, now_ms, cancelled)
+            .await
     }
 
     async fn ensure_interaction_records(

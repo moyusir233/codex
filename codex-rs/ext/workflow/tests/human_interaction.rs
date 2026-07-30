@@ -79,11 +79,8 @@ async fn send_reply_timeout_restart_and_poll_resolve_exactly_once()
     let fake = FakeLark::new()?;
     let codex_home = tempfile::tempdir()?;
     let run_id = WorkflowRunId::new();
-    let runtime = StateRuntime::init(
-        codex_home.path().to_path_buf(),
-        "test-provider".to_string(),
-    )
-    .await?;
+    let runtime =
+        StateRuntime::init(codex_home.path().to_path_buf(), "test-provider".to_string()).await?;
     create_run(&runtime, run_id).await?;
     let service = new_service(&runtime, codex_home.path(), fake.client());
     let request = interaction_request("approval", 1_000);
@@ -100,7 +97,10 @@ async fn send_reply_timeout_restart_and_poll_resolve_exactly_once()
         .read_lark_interaction(&interaction_id.to_string())
         .await?
         .expect("Lark correlation");
-    assert_eq!(Some("om_request_01"), correlation.request_message_id.as_deref());
+    assert_eq!(
+        Some("om_request_01"),
+        correlation.request_message_id.as_deref()
+    );
 
     write_page(
         &fake.message_page,
@@ -130,11 +130,8 @@ async fn send_reply_timeout_restart_and_poll_resolve_exactly_once()
             130,
         )],
     )?;
-    let reopened = StateRuntime::init(
-        codex_home.path().to_path_buf(),
-        "test-provider".to_string(),
-    )
-    .await?;
+    let reopened =
+        StateRuntime::init(codex_home.path().to_path_buf(), "test-provider".to_string()).await?;
     let restarted = new_service(&reopened, codex_home.path(), fake.client());
     let resolved = restarted
         .poll_or_request(run_id, request.clone(), 131, &AtomicBool::new(false))
@@ -160,11 +157,13 @@ async fn send_reply_timeout_restart_and_poll_resolve_exactly_once()
             .await?
             .len()
     );
-    assert!(reopened
-        .workflows()
-        .read_artifact(&artifact_id.to_string())
-        .await?
-        .is_some());
+    assert!(
+        reopened
+            .workflows()
+            .read_artifact(&artifact_id.to_string())
+            .await?
+            .is_some()
+    );
     assert_eq!(
         resolved,
         restarted
@@ -204,18 +203,10 @@ async fn singleton_subscriber_survives_one_waiter_cancellation()
 -> Result<(), Box<dyn std::error::Error>> {
     let fake = FakeLark::new()?;
     let codex_home = tempfile::tempdir()?;
-    let runtime = StateRuntime::init(
-        codex_home.path().to_path_buf(),
-        "test-provider".to_string(),
-    )
-    .await?;
+    let runtime =
+        StateRuntime::init(codex_home.path().to_path_buf(), "test-provider".to_string()).await?;
     let service = Arc::new(new_service(&runtime, codex_home.path(), fake.client()));
-    let supervisor = LarkEventSupervisor::new(
-        service,
-        16 * 1024,
-        1024,
-        Duration::from_millis(20),
-    );
+    let supervisor = LarkEventSupervisor::new(service, 16 * 1024, 1024, Duration::from_millis(20));
     let mut cancelled_waiter = supervisor.subscribe();
     let mut live_waiter = supervisor.subscribe();
     assert!(supervisor.ensure().await);
@@ -280,10 +271,7 @@ async fn mark_run_waiting(
         .acquire_lease(&run_id.to_string(), "test-owner", now_ms, 100)
         .await?
         .expect("lease");
-    let run = store
-        .read_run(&run_id.to_string())
-        .await?
-        .expect("run");
+    let run = store.read_run(&run_id.to_string()).await?.expect("run");
     store
         .transition_run(
             &run_id.to_string(),

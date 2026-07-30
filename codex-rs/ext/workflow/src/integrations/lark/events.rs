@@ -77,7 +77,9 @@ impl LarkEventDecoder {
         let content: TextContent = serde_json::from_str(&raw.event.message.content)
             .map_err(|_| invalid_response("message content was not valid text JSON"))?;
         if content.text.len() > self.maximum_text_bytes {
-            return Err(invalid_response("message text exceeded its configured bound"));
+            return Err(invalid_response(
+                "message text exceeded its configured bound",
+            ));
         }
         Ok(LarkEvent {
             event_id: nonempty(raw.header.event_id, "event id")?,

@@ -4,15 +4,15 @@ mod effects;
 mod events;
 mod fornax;
 mod interactions;
-mod leases;
 mod lark;
+#[cfg(test)]
+#[path = "lark_tests.rs"]
+mod lark_tests;
+mod leases;
 mod nodes;
 mod run_control;
 mod runs;
 mod scheduler;
-#[cfg(test)]
-#[path = "lark_tests.rs"]
-mod lark_tests;
 #[cfg(test)]
 mod tests;
 

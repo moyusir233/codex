@@ -26,13 +26,19 @@ pub struct HumanInteractionRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "state")]
 pub enum HumanInteractionOutcome {
-    Waiting { interaction_id: InteractionId },
+    Waiting {
+        interaction_id: InteractionId,
+    },
     Resolved {
         interaction_id: InteractionId,
         artifact_id: ArtifactId,
     },
-    TimedOut { interaction_id: InteractionId },
-    Cancelled { interaction_id: InteractionId },
+    TimedOut {
+        interaction_id: InteractionId,
+    },
+    Cancelled {
+        interaction_id: InteractionId,
+    },
     NeedsOperator {
         interaction_id: InteractionId,
         reason: String,

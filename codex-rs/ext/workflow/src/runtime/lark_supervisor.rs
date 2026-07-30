@@ -164,7 +164,8 @@ async fn run_subscriber(
                     if !discarding && !line.is_empty() {
                         match decoder.decode(&line) {
                             Ok(event) => {
-                                if let Err(error) = service.ingest_event(&event, "lark.event").await {
+                                if let Err(error) = service.ingest_event(&event, "lark.event").await
+                                {
                                     tracing::warn!(
                                         event_id = event.event_id,
                                         "failed to persist Lark event: {error}"

@@ -178,7 +178,10 @@ async fn lark_interaction_is_deduplicated_validated_and_restart_durable() {
         .await
         .expect("read reopened correlation")
         .expect("correlation exists");
-    assert_eq!(Some("om_request_01"), correlation.request_message_id.as_deref());
+    assert_eq!(
+        Some("om_request_01"),
+        correlation.request_message_id.as_deref()
+    );
     reopened.close().await;
     let _ = tokio::fs::remove_dir_all(home).await;
 }

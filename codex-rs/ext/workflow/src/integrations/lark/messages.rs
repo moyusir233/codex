@@ -124,7 +124,8 @@ fn push_body(
             Ok(vec![text.clone()])
         }
         MessageBody::RichPost(post) => {
-            let content = serde_json::to_string(post).map_err(|error| invalid(error.to_string()))?;
+            let content =
+                serde_json::to_string(post).map_err(|error| invalid(error.to_string()))?;
             push_value(args, "--msg-type", "post");
             push_value(args, "--content", &content);
             Ok(vec![content])

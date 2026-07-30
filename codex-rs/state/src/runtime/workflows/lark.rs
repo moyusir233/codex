@@ -301,8 +301,7 @@ WHERE l.interaction_id = ?
         .bind(&resolve.interaction_id)
         .fetch_one(&mut *tx)
         .await?;
-        let state =
-            WorkflowInteractionState::parse(&row.try_get::<String, _>("state")?)?;
+        let state = WorkflowInteractionState::parse(&row.try_get::<String, _>("state")?)?;
         let deadline_ms = row.try_get::<Option<i64>, _>("deadline_ms")?;
         let expected_chat = row.try_get::<String, _>("chat_id")?;
         let expected_thread = row.try_get::<Option<String>, _>("thread_id")?;
@@ -407,9 +406,7 @@ fn lark_from_row(
         thread_id: row.try_get("thread_id")?,
         request_message_id: row.try_get("request_message_id")?,
         correlation_token: row.try_get("correlation_token")?,
-        allowed_senders: serde_json::from_str(
-            &row.try_get::<String, _>("allowed_senders_json")?,
-        )?,
+        allowed_senders: serde_json::from_str(&row.try_get::<String, _>("allowed_senders_json")?)?,
         watermark_ms: row.try_get("watermark_ms")?,
         poll_page_token: row.try_get("poll_page_token")?,
         updated_at_ms: row.try_get("updated_at_ms")?,

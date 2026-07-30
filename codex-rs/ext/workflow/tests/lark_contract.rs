@@ -205,14 +205,9 @@ fn documents_chats_and_messages_use_typed_commands() -> Result<(), Box<dyn std::
         },
         &cancelled,
     )?;
-    let page =
-        client.list_chat_messages(&ChatId::parse("oc_demo_01")?, None, &cancelled)?;
+    let page = client.list_chat_messages(&ChatId::parse("oc_demo_01")?, None, &cancelled)?;
     assert_eq!(1, page.messages.len());
-    client.list_thread_messages(
-        &ThreadId::parse("omt_demo_01")?,
-        None,
-        &cancelled,
-    )?;
+    client.list_thread_messages(&ThreadId::parse("omt_demo_01")?, None, &cancelled)?;
 
     let args = fake.args();
     for expected in [
