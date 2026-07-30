@@ -218,6 +218,8 @@ pub enum Feature {
     GuardianApproval,
     /// Enable persisted thread goals and automatic goal continuation.
     Goals,
+    /// Enable durable reducer workflows and workflow-owned Codex nodes.
+    Workflows,
     /// Add current context-window metadata to model-visible context.
     TokenBudget,
     /// Track and report a shared token budget across a session's agent threads.
@@ -1239,6 +1241,12 @@ pub const FEATURES: &[FeatureSpec] = &[
         key: "goals",
         stage: Stage::Stable,
         default_enabled: true,
+    },
+    FeatureSpec {
+        id: Feature::Workflows,
+        key: "workflows",
+        stage: Stage::UnderDevelopment,
+        default_enabled: false,
     },
     FeatureSpec {
         id: Feature::TokenBudget,

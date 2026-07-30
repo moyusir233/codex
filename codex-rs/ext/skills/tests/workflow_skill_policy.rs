@@ -73,6 +73,7 @@ async fn workflow_skill_policy_filters_every_authority_and_access_path() -> Test
         .on_thread_start(ThreadStartInput {
             config: &(),
             session_source: &SessionSource::Cli,
+            thread_source: None,
             persistent_thread_state_available: true,
             environments: &[],
             session_store: &session_store,
@@ -247,6 +248,7 @@ async fn workflow_skill_policy_disable_all_hides_catalog_and_prevents_explicit_r
         .on_thread_start(ThreadStartInput {
             config: &(),
             session_source: &SessionSource::Cli,
+            thread_source: None,
             persistent_thread_state_available: true,
             environments: &[],
             session_store: &session_store,

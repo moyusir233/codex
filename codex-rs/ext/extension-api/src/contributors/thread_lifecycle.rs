@@ -1,5 +1,6 @@
 use crate::ExtensionData;
 use codex_protocol::protocol::SessionSource;
+use codex_protocol::protocol::ThreadSource;
 use codex_protocol::protocol::TurnEnvironmentSelection;
 
 /// Input supplied when the host starts a runtime for a thread.
@@ -8,6 +9,8 @@ pub struct ThreadStartInput<'a, C> {
     pub config: &'a C,
     /// Source that created the session for this thread.
     pub session_source: &'a SessionSource,
+    /// Durable source classification for this thread, when one was recorded.
+    pub thread_source: Option<&'a ThreadSource>,
     /// Whether persistent thread-scoped state is available for this thread.
     pub persistent_thread_state_available: bool,
     /// Execution environments selected for this thread.

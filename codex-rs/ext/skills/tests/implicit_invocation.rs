@@ -148,6 +148,7 @@ async fn implicit_core_and_native_read_invocations_share_turn_local_recording() 
         .on_thread_start(ThreadStartInput {
             config: &(),
             session_source: &SessionSource::Cli,
+            thread_source: None,
             persistent_thread_state_available: true,
             environments: &[],
             session_store: &session_store,
@@ -241,6 +242,7 @@ async fn shadow_selection_uses_host_snapshot_and_excludes_executor_candidates() 
         .on_thread_start(ThreadStartInput {
             config: &(),
             session_source: &SessionSource::Cli,
+            thread_source: None,
             persistent_thread_state_available: true,
             environments: &[],
             session_store: &session_store,
