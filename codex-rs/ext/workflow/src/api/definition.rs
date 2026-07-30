@@ -47,6 +47,7 @@ pub struct WorkflowMetadata {
     description: String,
     is_default: bool,
     stability: WorkflowStability,
+    required_capabilities: Vec<String>,
 }
 
 impl WorkflowMetadata {
@@ -62,6 +63,7 @@ impl WorkflowMetadata {
             description: description.into(),
             is_default: false,
             stability: WorkflowStability::Experimental,
+            required_capabilities: Vec::new(),
         }
     }
 
@@ -74,6 +76,15 @@ impl WorkflowMetadata {
     /// Sets the discovery stability classification.
     pub fn with_stability(mut self, stability: WorkflowStability) -> Self {
         self.stability = stability;
+        self
+    }
+
+    /// Declares capability names required before this workflow can run.
+    pub fn with_required_capabilities(
+        mut self,
+        capabilities: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        self.required_capabilities = capabilities.into_iter().map(Into::into).collect();
         self
     }
 
@@ -100,6 +111,11 @@ impl WorkflowMetadata {
     /// Returns the discovery stability classification.
     pub fn stability(&self) -> WorkflowStability {
         self.stability
+    }
+
+    /// Returns the required capability names advertised during discovery.
+    pub fn required_capabilities(&self) -> &[String] {
+        &self.required_capabilities
     }
 }
 

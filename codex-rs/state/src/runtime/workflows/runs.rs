@@ -139,6 +139,36 @@ WHERE run_id = ?
         row.map(run_from_row).transpose()
     }
 
+    /// Lists run snapshots in newest-first order after an optional run cursor.
+    pub async fn list_runs(
+        &self,
+        cursor: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<WorkflowRunRecord>, WorkflowStoreError> {
+        let rows = sqlx::query(
+            r#"
+SELECT run_id, definition_name, definition_version, state_schema_version,
+       state_json, arguments_json, status, output_json, error_code,
+       wake_json, cancellation_requested_at_ms, deadline_ms,
+       row_version, next_sequence, lease_owner, lease_expires_at_ms,
+       lease_fence, created_at_ms, updated_at_ms
+FROM workflow_runs
+WHERE ? IS NULL
+   OR (created_at_ms, run_id) < (
+       SELECT created_at_ms, run_id FROM workflow_runs WHERE run_id = ?
+   )
+ORDER BY created_at_ms DESC, run_id DESC
+LIMIT ?
+            "#,
+        )
+        .bind(cursor)
+        .bind(cursor)
+        .bind(i64::from(limit.clamp(1, 1_000)))
+        .fetch_all(self.pool.as_ref())
+        .await?;
+        rows.into_iter().map(run_from_row).collect()
+    }
+
     /// Applies one fenced CAS transition and appends its event in the same transaction.
     pub async fn transition_run(
         &self,

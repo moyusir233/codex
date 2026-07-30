@@ -28,6 +28,25 @@ pub enum WorkflowInteractionPlanOutcome {
 }
 
 impl WorkflowStore {
+    /// Reads one interaction by its stable identity.
+    pub async fn read_interaction(
+        &self,
+        interaction_id: &str,
+    ) -> Result<Option<WorkflowInteractionRecord>, WorkflowStoreError> {
+        let row = sqlx::query(
+            r#"
+SELECT interaction_id, run_id, dedupe_key, kind, request_json, state,
+       response_artifact_id, deadline_ms, created_at_ms, updated_at_ms
+FROM workflow_interactions
+WHERE interaction_id = ?
+            "#,
+        )
+        .bind(interaction_id)
+        .fetch_optional(self.pool())
+        .await?;
+        row.map(interaction_from_row).transpose()
+    }
+
     /// Plans an interaction exactly once by `(run_id, dedupe_key)`.
     pub async fn plan_interaction(
         &self,

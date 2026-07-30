@@ -9,6 +9,48 @@ use super::events::append_event;
 use super::runs::run_from_row;
 
 impl WorkflowStore {
+    /// Requeues an operator-resumable run and records the explicit action.
+    pub async fn resume_run(
+        &self,
+        run_id: &str,
+        resumed_at_ms: i64,
+    ) -> Result<WorkflowRunRecord, WorkflowStoreError> {
+        let mut tx = self.pool().begin().await?;
+        let result = sqlx::query(
+            r#"
+UPDATE workflow_runs
+SET status = 'pending', error_code = NULL, wake_json = NULL,
+    row_version = row_version + 1, updated_at_ms = ?
+WHERE run_id = ? AND status IN ('waiting', 'needs_operator')
+            "#,
+        )
+        .bind(resumed_at_ms)
+        .bind(run_id)
+        .execute(&mut *tx)
+        .await?;
+        if result.rows_affected() == 1 {
+            append_event(
+                &mut tx,
+                run_id,
+                "run.resumed",
+                Some(run_id),
+                &json!({}),
+                resumed_at_ms,
+            )
+            .await?;
+            tx.commit().await?;
+        } else {
+            tx.rollback().await?;
+            return match self.read_run(run_id).await? {
+                Some(_) => Err(WorkflowStoreError::StaleWrite),
+                None => Err(WorkflowStoreError::RunNotFound),
+            };
+        }
+        self.read_run(run_id)
+            .await?
+            .ok_or(WorkflowStoreError::RunNotFound)
+    }
+
     /// Durably requests cooperative cancellation exactly once.
     pub async fn request_run_cancellation(
         &self,

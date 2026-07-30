@@ -101,6 +101,7 @@ pub struct WorkflowDefinitionMetadata {
     argv_help: String,
     argument_schema: Value,
     output_schema: Value,
+    required_capabilities: Vec<String>,
 }
 
 impl WorkflowDefinitionMetadata {
@@ -147,6 +148,11 @@ impl WorkflowDefinitionMetadata {
     /// Returns the captured successful output JSON schema.
     pub fn output_schema(&self) -> &Value {
         &self.output_schema
+    }
+
+    /// Returns capability names that must be available before execution.
+    pub fn required_capabilities(&self) -> &[String] {
+        &self.required_capabilities
     }
 }
 
@@ -406,6 +412,7 @@ fn capture_metadata<W: Workflow>(
         argv_help,
         argument_schema,
         output_schema,
+        required_capabilities: metadata.required_capabilities().to_vec(),
     })
 }
 

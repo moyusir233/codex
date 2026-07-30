@@ -50,6 +50,84 @@ async fn create_run(runtime: &StateRuntime, run_id: &str) {
 }
 
 #[tokio::test]
+async fn workflow_run_listing_paginates_and_explicit_resume_is_durable() {
+    let home = unique_temp_dir();
+    let runtime = init(&home).await;
+    create_run(runtime.as_ref(), "run-a").await;
+    create_run(runtime.as_ref(), "run-b").await;
+    create_run(runtime.as_ref(), "run-c").await;
+    let store = runtime.workflows();
+
+    let first_page = store
+        .list_runs(None, 2)
+        .await
+        .expect("list first workflow run page");
+    assert_eq!(
+        first_page
+            .iter()
+            .map(|run| run.run_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["run-c", "run-b"]
+    );
+    let second_page = store
+        .list_runs(Some("run-b"), 2)
+        .await
+        .expect("list second workflow run page");
+    assert_eq!(
+        second_page
+            .iter()
+            .map(|run| run.run_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["run-a"]
+    );
+    assert!(matches!(
+        store.resume_run("run-a", 199).await,
+        Err(WorkflowStoreError::StaleWrite)
+    ));
+
+    store
+        .mark_run_needs_operator(
+            "run-b",
+            None,
+            "manual_review",
+            json!({"reason": "unsafe recovery"}),
+            200,
+        )
+        .await
+        .expect("mark run as operator-owned");
+    let resumed = store
+        .resume_run("run-b", 201)
+        .await
+        .expect("resume operator-owned run");
+    assert_eq!(resumed.status, WorkflowRunStatus::Pending);
+    assert_eq!(resumed.error_code, None);
+    assert_eq!(resumed.wake, None);
+    let events = store
+        .events_after("run-b", 0, 10)
+        .await
+        .expect("read resumed run events");
+    assert_eq!(
+        events
+            .iter()
+            .map(|event| event.kind.as_str())
+            .collect::<Vec<_>>(),
+        vec!["run.created", "run.needs_operator", "run.resumed"]
+    );
+
+    runtime.close().await;
+    let reopened = init(&home).await;
+    let resumed = reopened
+        .workflows()
+        .read_run("run-b")
+        .await
+        .expect("read reopened run")
+        .expect("resumed run exists");
+    assert_eq!(resumed.status, WorkflowRunStatus::Pending);
+    reopened.close().await;
+    let _ = tokio::fs::remove_dir_all(home).await;
+}
+
+#[tokio::test]
 async fn workflow_lease_race_fences_stale_scheduler_and_reopens() {
     let home = unique_temp_dir();
     let runtime = init(&home).await;

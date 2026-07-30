@@ -75,6 +75,7 @@ impl Workflow for CounterWorkflow {
             "Counts durably.",
         )
         .with_default(true)
+        .with_required_capabilities(["codex.nodes", "example.counter"])
     }
 
     fn initialize(&self, args: Self::Arguments) -> Result<Self::State, WorkflowError> {
@@ -119,6 +120,10 @@ fn definition_parses_schema_and_round_trips_checkpoint() {
     assert!(metadata.argv_help().contains("--count"));
     assert_eq!(Some("object"), metadata.argument_schema()["type"].as_str());
     assert_eq!(Some("object"), metadata.output_schema()["type"].as_str());
+    assert_eq!(
+        metadata.required_capabilities(),
+        ["codex.nodes", "example.counter"]
+    );
 }
 
 #[test]
