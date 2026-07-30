@@ -69,6 +69,9 @@ pub struct WorkflowRunRecord {
     pub status: WorkflowRunStatus,
     pub output: Option<Value>,
     pub error_code: Option<String>,
+    pub wake: Option<Value>,
+    pub cancellation_requested_at_ms: Option<i64>,
+    pub deadline_ms: Option<i64>,
     pub row_version: u64,
     pub next_sequence: u64,
     pub lease_owner: Option<String>,
@@ -193,6 +196,7 @@ pub struct WorkflowNodeCreate {
     pub node_key: String,
     pub spec: Value,
     pub status: WorkflowNodeStatus,
+    pub failure_policy: String,
     pub created_at_ms: i64,
 }
 
@@ -205,6 +209,8 @@ pub struct WorkflowNodeRecord {
     pub thread_id: Option<String>,
     pub spec: Value,
     pub status: WorkflowNodeStatus,
+    pub retry_at_ms: Option<i64>,
+    pub failure_policy: String,
     pub row_version: u64,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
@@ -267,6 +273,7 @@ pub struct WorkflowNodeAttemptCreate {
     pub node_id: String,
     pub submission_id: String,
     pub input_hash: String,
+    pub thread_id: Option<String>,
     pub created_at_ms: i64,
 }
 
@@ -279,6 +286,7 @@ pub struct WorkflowNodeAttemptRecord {
     pub attempt_number: u32,
     pub submission_id: String,
     pub input_hash: String,
+    pub thread_id: Option<String>,
     pub turn_id: Option<String>,
     pub status: WorkflowNodeAttemptStatus,
     pub started_at_ms: Option<i64>,
@@ -296,6 +304,25 @@ pub struct WorkflowNodeAttemptTransition {
     pub turn_id: Option<String>,
     pub error_code: Option<String>,
     pub updated_at_ms: i64,
+}
+
+/// One persisted dependency edge and its fan-in policy.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkflowDependencyRecord {
+    pub run_id: String,
+    pub node_id: String,
+    pub depends_on_node_id: String,
+    pub policy: String,
+    pub at_least: Option<u32>,
+}
+
+/// One thread ever owned by a logical workflow node.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkflowNodeThreadRecord {
+    pub node_id: String,
+    pub thread_id: String,
+    pub ordinal: u32,
+    pub created_at_ms: i64,
 }
 
 /// State of a deduplicated workflow interaction.

@@ -54,4 +54,60 @@ RETURNING lease_fence
         })
         .transpose()
     }
+
+    /// Extends one still-live lease without changing its fence.
+    pub async fn renew_lease(
+        &self,
+        lease: &WorkflowLease,
+        now_ms: i64,
+        lease_duration_ms: i64,
+    ) -> Result<bool, WorkflowStoreError> {
+        let expires_at_ms = now_ms.saturating_add(lease_duration_ms.max(1));
+        let result =
+            sqlx::query(
+                r#"
+UPDATE workflow_runs
+SET lease_expires_at_ms = ?, updated_at_ms = MAX(updated_at_ms, ?)
+WHERE run_id = ? AND lease_owner = ? AND lease_fence = ?
+  AND lease_expires_at_ms > ?
+            "#,
+            )
+            .bind(expires_at_ms)
+            .bind(now_ms)
+            .bind(&lease.run_id)
+            .bind(&lease.owner)
+            .bind(i64::try_from(lease.fence).map_err(|_| {
+                anyhow::anyhow!("workflow lease fence exceeds SQLite integer range")
+            })?)
+            .bind(now_ms)
+            .execute(self.pool())
+            .await?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    /// Releases one exact fenced lease without affecting a newer owner.
+    pub async fn release_lease(
+        &self,
+        lease: &WorkflowLease,
+        now_ms: i64,
+    ) -> Result<bool, WorkflowStoreError> {
+        let result =
+            sqlx::query(
+                r#"
+UPDATE workflow_runs
+SET lease_owner = NULL, lease_expires_at_ms = NULL,
+    updated_at_ms = MAX(updated_at_ms, ?)
+WHERE run_id = ? AND lease_owner = ? AND lease_fence = ?
+            "#,
+            )
+            .bind(now_ms)
+            .bind(&lease.run_id)
+            .bind(&lease.owner)
+            .bind(i64::try_from(lease.fence).map_err(|_| {
+                anyhow::anyhow!("workflow lease fence exceeds SQLite integer range")
+            })?)
+            .execute(self.pool())
+            .await?;
+        Ok(result.rows_affected() == 1)
+    }
 }

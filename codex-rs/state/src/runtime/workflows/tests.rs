@@ -73,12 +73,34 @@ async fn workflow_lease_race_fences_stale_scheduler_and_reopens() {
     } else {
         "scheduler-a"
     };
+    assert!(
+        runtime
+            .workflows()
+            .renew_lease(&first, 1_050, 100)
+            .await
+            .expect("renew current lease")
+    );
+    assert!(
+        runtime
+            .workflows()
+            .acquire_lease("run-race", second_owner, 1_101, 100)
+            .await
+            .expect("blocked lease acquisition")
+            .is_none()
+    );
+    assert!(
+        runtime
+            .workflows()
+            .release_lease(&first, 1_102)
+            .await
+            .expect("release current lease")
+    );
     let second = runtime
         .workflows()
-        .acquire_lease("run-race", second_owner, 1_101, 100)
+        .acquire_lease("run-race", second_owner, 1_103, 100)
         .await
-        .expect("expired lease acquisition")
-        .expect("second scheduler owns expired lease");
+        .expect("released lease acquisition")
+        .expect("second scheduler owns released lease");
     assert_eq!(second.fence, first.fence + 1);
 
     let transition = || WorkflowRunTransition {
@@ -87,10 +109,11 @@ async fn workflow_lease_race_fences_stale_scheduler_and_reopens() {
         state: json!({"step": 1}),
         output: None,
         error_code: None,
+        wake: None,
         event_kind: "run.started".to_string(),
         event_entity_id: Some("run-race".to_string()),
         event_metadata: json!({}),
-        updated_at_ms: 1_102,
+        updated_at_ms: 1_104,
     };
     let stale = runtime
         .workflows()
@@ -134,6 +157,7 @@ async fn workflow_graph_dedupes_journals_and_replays_events_in_order() {
                 node_key: "prepare".to_string(),
                 spec: json!({"prompt": "prepare"}),
                 status: WorkflowNodeStatus::Ready,
+                failure_policy: "fail_fast".to_string(),
                 created_at_ms: 101,
             },
             &[],
@@ -148,6 +172,7 @@ async fn workflow_graph_dedupes_journals_and_replays_events_in_order() {
                 node_key: "finish".to_string(),
                 spec: json!({"prompt": "finish"}),
                 status: WorkflowNodeStatus::Pending,
+                failure_policy: "fail_fast".to_string(),
                 created_at_ms: 102,
             },
             &["node-a".to_string()],
@@ -320,6 +345,7 @@ async fn workflow_node_thread_binding_is_unique_idempotent_and_durable() {
                     node_key: node_key.to_string(),
                     spec: json!({"key": node_key}),
                     status: WorkflowNodeStatus::Ready,
+                    failure_policy: "fail_fast".to_string(),
                     created_at_ms: 101,
                 },
                 &[],
@@ -404,6 +430,7 @@ async fn workflow_node_attempts_append_and_transition_without_overwriting_histor
                 node_key: "primary".to_string(),
                 spec: json!({}),
                 status: WorkflowNodeStatus::Ready,
+                failure_policy: "fail_fast".to_string(),
                 created_at_ms: 101,
             },
             &[],
@@ -418,6 +445,7 @@ async fn workflow_node_attempts_append_and_transition_without_overwriting_histor
                 node_id: "node-attempts".to_string(),
                 submission_id: "submission-1".to_string(),
                 input_hash: "abc".to_string(),
+                thread_id: Some("thread-1".to_string()),
                 created_at_ms: 102,
             },
         )
@@ -477,6 +505,7 @@ async fn workflow_node_attempts_append_and_transition_without_overwriting_histor
                 node_id: "node-attempts".to_string(),
                 submission_id: "submission-2".to_string(),
                 input_hash: "def".to_string(),
+                thread_id: Some("thread-1".to_string()),
                 created_at_ms: 106,
             },
         )

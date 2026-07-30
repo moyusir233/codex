@@ -96,6 +96,7 @@ pub use workflows::WorkflowEffectPlanOutcome;
 pub use workflows::WorkflowEffectUpdate;
 pub use workflows::WorkflowInteractionPlan;
 pub use workflows::WorkflowInteractionPlanOutcome;
+pub use workflows::WorkflowNodeTransition;
 pub use workflows::WorkflowRunTransition;
 pub use workflows::WorkflowStore;
 pub use workflows::WorkflowStoreError;

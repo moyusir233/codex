@@ -23,9 +23,9 @@ impl WorkflowStore {
         let result = sqlx::query(
             r#"
 INSERT INTO workflow_nodes (
-    node_id, run_id, node_key, spec_json, status,
+    node_id, run_id, node_key, spec_json, status, failure_policy,
     row_version, created_at_ms, updated_at_ms
-) VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
             "#,
         )
         .bind(&create.node_id)
@@ -33,6 +33,7 @@ INSERT INTO workflow_nodes (
         .bind(&create.node_key)
         .bind(serde_json::to_string(&create.spec)?)
         .bind(create.status.as_str())
+        .bind(&create.failure_policy)
         .bind(create.created_at_ms)
         .bind(create.created_at_ms)
         .execute(&mut *tx)
@@ -93,6 +94,7 @@ WHERE node_id = ? AND run_id = ?
         let row = sqlx::query(
             r#"
 SELECT node_id, run_id, node_key, thread_id, spec_json, status,
+       retry_at_ms, failure_policy,
        row_version, created_at_ms, updated_at_ms
 FROM workflow_nodes
 WHERE node_id = ?
@@ -112,6 +114,7 @@ WHERE node_id = ?
         let row = sqlx::query(
             r#"
 SELECT node_id, run_id, node_key, thread_id, spec_json, status,
+       retry_at_ms, failure_policy,
        row_version, created_at_ms, updated_at_ms
 FROM workflow_nodes
 WHERE thread_id = ?
@@ -176,6 +179,17 @@ WHERE node_id = ? AND row_version = ? AND thread_id IS NULL
             updated_at_ms,
         )
         .await?;
+        sqlx::query(
+            r#"
+INSERT INTO workflow_node_threads (node_id, thread_id, ordinal, created_at_ms)
+VALUES (?, ?, 1, ?)
+            "#,
+        )
+        .bind(node_id)
+        .bind(thread_id)
+        .bind(updated_at_ms)
+        .execute(&mut *tx)
+        .await?;
         tx.commit().await?;
         self.read_node(node_id)
             .await?
@@ -190,6 +204,7 @@ WHERE node_id = ? AND row_version = ? AND thread_id IS NULL
         let rows = sqlx::query(
             r#"
 SELECT node_id, run_id, node_key, thread_id, spec_json, status,
+       retry_at_ms, failure_policy,
        row_version, created_at_ms, updated_at_ms
 FROM workflow_nodes
 WHERE run_id = ?
@@ -203,7 +218,9 @@ ORDER BY node_key, node_id
     }
 }
 
-fn node_from_row(row: sqlx::sqlite::SqliteRow) -> Result<WorkflowNodeRecord, WorkflowStoreError> {
+pub(super) fn node_from_row(
+    row: sqlx::sqlite::SqliteRow,
+) -> Result<WorkflowNodeRecord, WorkflowStoreError> {
     Ok(WorkflowNodeRecord {
         node_id: row.try_get("node_id")?,
         run_id: row.try_get("run_id")?,
@@ -211,6 +228,8 @@ fn node_from_row(row: sqlx::sqlite::SqliteRow) -> Result<WorkflowNodeRecord, Wor
         thread_id: row.try_get("thread_id")?,
         spec: serde_json::from_str(&row.try_get::<String, _>("spec_json")?)?,
         status: WorkflowNodeStatus::parse(&row.try_get::<String, _>("status")?)?,
+        retry_at_ms: row.try_get("retry_at_ms")?,
+        failure_policy: row.try_get("failure_policy")?,
         row_version: to_u64(row.try_get::<i64, _>("row_version")?, "node row version")?,
         created_at_ms: row.try_get("created_at_ms")?,
         updated_at_ms: row.try_get("updated_at_ms")?,

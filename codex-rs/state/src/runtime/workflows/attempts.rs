@@ -23,7 +23,7 @@ impl WorkflowStore {
             r#"
 INSERT INTO workflow_node_attempts (
     attempt_id, run_id, node_id, attempt_number, submission_id,
-    input_hash, status, created_at_ms, updated_at_ms
+    input_hash, thread_id, status, created_at_ms, updated_at_ms
 )
 SELECT ?, ?, node_id,
        COALESCE((
@@ -31,7 +31,7 @@ SELECT ?, ?, node_id,
            FROM workflow_node_attempts AS existing
            WHERE existing.node_id = workflow_nodes.node_id
        ), 0) + 1,
-       ?, ?, 'planned', ?, ?
+       ?, ?, COALESCE(?, thread_id), 'planned', ?, ?
 FROM workflow_nodes
 WHERE node_id = ? AND run_id = ?
             "#,
@@ -40,6 +40,7 @@ WHERE node_id = ? AND run_id = ?
         .bind(run_id)
         .bind(&create.submission_id)
         .bind(&create.input_hash)
+        .bind(&create.thread_id)
         .bind(create.created_at_ms)
         .bind(create.created_at_ms)
         .bind(&create.node_id)
@@ -82,7 +83,7 @@ WHERE node_id = ? AND run_id = ?
         self.read_node_attempt_where(
             r#"
 SELECT attempt_id, run_id, node_id, attempt_number, submission_id,
-       input_hash, turn_id, status, started_at_ms, completed_at_ms,
+       input_hash, thread_id, turn_id, status, started_at_ms, completed_at_ms,
        error_code, created_at_ms, updated_at_ms
 FROM workflow_node_attempts
 WHERE attempt_id = ?
@@ -100,7 +101,7 @@ WHERE attempt_id = ?
         self.read_node_attempt_where(
             r#"
 SELECT attempt_id, run_id, node_id, attempt_number, submission_id,
-       input_hash, turn_id, status, started_at_ms, completed_at_ms,
+       input_hash, thread_id, turn_id, status, started_at_ms, completed_at_ms,
        error_code, created_at_ms, updated_at_ms
 FROM workflow_node_attempts
 WHERE submission_id = ?
@@ -119,7 +120,7 @@ WHERE submission_id = ?
         let row = sqlx::query(
             r#"
 SELECT attempt_id, run_id, node_id, attempt_number, submission_id,
-       input_hash, turn_id, status, started_at_ms, completed_at_ms,
+       input_hash, thread_id, turn_id, status, started_at_ms, completed_at_ms,
        error_code, created_at_ms, updated_at_ms
 FROM workflow_node_attempts
 WHERE node_id = ? AND turn_id = ?
@@ -249,7 +250,7 @@ fn valid_attempt_transition(
     }
 }
 
-fn attempt_from_row(
+pub(super) fn attempt_from_row(
     row: sqlx::sqlite::SqliteRow,
 ) -> Result<WorkflowNodeAttemptRecord, WorkflowStoreError> {
     Ok(WorkflowNodeAttemptRecord {
@@ -260,6 +261,7 @@ fn attempt_from_row(
             .map_err(|_| anyhow::anyhow!("attempt number is out of range"))?,
         submission_id: row.try_get("submission_id")?,
         input_hash: row.try_get("input_hash")?,
+        thread_id: row.try_get("thread_id")?,
         turn_id: row.try_get("turn_id")?,
         status: WorkflowNodeAttemptStatus::parse(&row.try_get::<String, _>("status")?)?,
         started_at_ms: row.try_get("started_at_ms")?,

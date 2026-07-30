@@ -26,6 +26,12 @@ pub enum WorkflowStoreError {
     DuplicateNode,
     #[error("workflow node attempt identifier or submission already exists")]
     DuplicateAttempt,
+    #[error("workflow dependency already exists")]
+    DuplicateDependency,
+    #[error("workflow dependency would create a cycle")]
+    DependencyCycle,
+    #[error("workflow dependency policy is invalid")]
+    InvalidDependencyPolicy,
     #[error("workflow artifact identifier or path already exists")]
     DuplicateArtifact,
     #[error(transparent)]
@@ -43,6 +49,7 @@ pub struct WorkflowRunTransition {
     pub state: Value,
     pub output: Option<Value>,
     pub error_code: Option<String>,
+    pub wake: Option<Value>,
     pub event_kind: String,
     pub event_entity_id: Option<String>,
     pub event_metadata: Value,
@@ -119,6 +126,7 @@ INSERT INTO workflow_events (
             r#"
 SELECT run_id, definition_name, definition_version, state_schema_version,
        state_json, arguments_json, status, output_json, error_code,
+       wake_json, cancellation_requested_at_ms, deadline_ms,
        row_version, next_sequence, lease_owner, lease_expires_at_ms,
        lease_fence, created_at_ms, updated_at_ms
 FROM workflow_runs
@@ -154,6 +162,7 @@ SET status = ?,
     state_json = ?,
     output_json = ?,
     error_code = ?,
+    wake_json = ?,
     row_version = row_version + 1,
     next_sequence = next_sequence + 1,
     updated_at_ms = ?
@@ -170,6 +179,13 @@ RETURNING next_sequence - 1 AS sequence
         .bind(serde_json::to_string(&transition.state)?)
         .bind(output_json)
         .bind(&transition.error_code)
+        .bind(
+            transition
+                .wake
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()?,
+        )
         .bind(transition.updated_at_ms)
         .bind(run_id)
         .bind(to_i64(expected_row_version, "row version")?)
@@ -219,8 +235,11 @@ INSERT INTO workflow_events (
     }
 }
 
-fn run_from_row(row: sqlx::sqlite::SqliteRow) -> Result<WorkflowRunRecord, WorkflowStoreError> {
+pub(super) fn run_from_row(
+    row: sqlx::sqlite::SqliteRow,
+) -> Result<WorkflowRunRecord, WorkflowStoreError> {
     let output_json = row.try_get::<Option<String>, _>("output_json")?;
+    let wake_json = row.try_get::<Option<String>, _>("wake_json")?;
     Ok(WorkflowRunRecord {
         run_id: row.try_get("run_id")?,
         definition_name: row.try_get("definition_name")?,
@@ -236,6 +255,11 @@ fn run_from_row(row: sqlx::sqlite::SqliteRow) -> Result<WorkflowRunRecord, Workf
             .map(|value| serde_json::from_str(&value))
             .transpose()?,
         error_code: row.try_get("error_code")?,
+        wake: wake_json
+            .map(|value| serde_json::from_str(&value))
+            .transpose()?,
+        cancellation_requested_at_ms: row.try_get("cancellation_requested_at_ms")?,
+        deadline_ms: row.try_get("deadline_ms")?,
         row_version: to_u64(row.try_get::<i64, _>("row_version")?, "row version")?,
         next_sequence: to_u64(row.try_get::<i64, _>("next_sequence")?, "next sequence")?,
         lease_owner: row.try_get("lease_owner")?,

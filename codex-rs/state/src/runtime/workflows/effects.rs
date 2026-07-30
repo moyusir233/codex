@@ -123,6 +123,26 @@ WHERE run_id = ? AND effect_key = ?
         row.map(effect_from_row).transpose()
     }
 
+    /// Lists one run's effects in stable key order for recovery reconciliation.
+    pub async fn list_effects(
+        &self,
+        run_id: &str,
+    ) -> Result<Vec<WorkflowEffectRecord>, WorkflowStoreError> {
+        let rows = sqlx::query(
+            r#"
+SELECT run_id, effect_key, kind, request_hash, request_json,
+       state, response_json, error_code
+FROM workflow_effects
+WHERE run_id = ?
+ORDER BY effect_key
+            "#,
+        )
+        .bind(run_id)
+        .fetch_all(self.pool())
+        .await?;
+        rows.into_iter().map(effect_from_row).collect()
+    }
+
     /// Advances an effect journal state without changing its identity or request.
     pub async fn update_effect(
         &self,
