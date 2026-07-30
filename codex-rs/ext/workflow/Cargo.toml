@@ -13,7 +13,15 @@ doctest = false
 [lints]
 workspace = true
 
+[dependencies]
+clap = { workspace = true, features = ["derive"] }
+schemars = { workspace = true }
+semver = { workspace = true, features = ["serde"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true, features = ["serde", "v7"] }
+
 [dev-dependencies]
 pretty_assertions = { workspace = true }
-serde_json = { workspace = true }
 tempfile = { workspace = true }
