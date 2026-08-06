@@ -4544,6 +4544,7 @@ dependencies = [
  "codex-state",
  "codex-thread-store",
  "codex-utils-absolute-path",
+ "libc",
  "pretty_assertions",
  "reqwest 0.12.28",
  "schemars 0.8.22",

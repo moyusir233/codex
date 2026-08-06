@@ -1,7 +1,5 @@
 """Protocol-v1 request validation and response helpers."""
 
-from __future__ import annotations
-
 import math
 import re
 import uuid
@@ -75,7 +73,7 @@ class SpanParent:
     identifier: str | None = None
 
     @classmethod
-    def parse(cls, value: Any) -> SpanParent:
+    def parse(cls, value: Any) -> "SpanParent":
         if not isinstance(value, dict):
             raise invalid("`parent` must be a tagged object")
         kind = require_string(value, "type", maximum=32)
@@ -99,7 +97,7 @@ class StartSpan:
     parent: SpanParent
 
     @classmethod
-    def parse(cls, body: dict[str, Any]) -> StartSpan:
+    def parse(cls, body: dict[str, Any]) -> "StartSpan":
         require_fields(
             body,
             {"operationId", "name", "spanType", "parent"},
@@ -125,7 +123,7 @@ class RecordSpan:
     finish_time: float | None
 
     @classmethod
-    def parse(cls, body: dict[str, Any]) -> RecordSpan:
+    def parse(cls, body: dict[str, Any]) -> "RecordSpan":
         require_fields(body, {"operationId", "record"}, {"operationId", "record"})
         operation_id = require_uuid(body, "operationId")
         record = body["record"]
@@ -172,7 +170,7 @@ class FinishSpan:
     operation_id: str
 
     @classmethod
-    def parse(cls, body: dict[str, Any]) -> FinishSpan:
+    def parse(cls, body: dict[str, Any]) -> "FinishSpan":
         require_fields(body, {"operationId"}, {"operationId"})
         return cls(operation_id=require_uuid(body, "operationId"))
 

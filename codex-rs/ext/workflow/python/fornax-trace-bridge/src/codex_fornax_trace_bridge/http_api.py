@@ -1,7 +1,5 @@
 """Authenticated loopback-only HTTP protocol v1."""
 
-from __future__ import annotations
-
 import hmac
 import ipaddress
 import json

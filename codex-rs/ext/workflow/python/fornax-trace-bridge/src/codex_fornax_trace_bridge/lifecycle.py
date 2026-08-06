@@ -1,7 +1,5 @@
 """Singleton daemon discovery, publication, and shutdown."""
 
-from __future__ import annotations
-
 import hashlib
 import hmac
 import json

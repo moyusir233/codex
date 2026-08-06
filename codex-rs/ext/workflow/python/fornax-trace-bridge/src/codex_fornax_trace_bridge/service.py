@@ -1,7 +1,5 @@
 """Journal-before-dispatch bridge service."""
 
-from __future__ import annotations
-
 import hashlib
 import threading
 from collections.abc import Callable
@@ -36,13 +34,28 @@ class BridgeService:
                 raise BridgeError("unknownContext", "trace context was not found", 404)
 
         def dispatch() -> dict[str, Any]:
-            response = self._sdk.start(request, persisted_header)
-            header = response.pop("_header")
-            response.update(
-                {"operationId": request.operation_id, "protocolVersion": int(PROTOCOL_VERSION)}
+            def finalize(response: dict[str, Any]) -> dict[str, Any]:
+                response = dict(response)
+                header = response.pop("_header")
+                response.update(
+                    {
+                        "operationId": request.operation_id,
+                        "protocolVersion": int(PROTOCOL_VERSION),
+                    }
+                )
+                self._journal.add_span(response, request.operation_id, header)
+                return response
+
+            def late(future: Any) -> None:
+                self._reconcile_late(request.operation_id, future, finalize)
+
+            return finalize(
+                self._sdk.start(
+                    request,
+                    persisted_header,
+                    on_late_completion=late,
+                )
             )
-            self._journal.add_span(response, request.operation_id, header)
-            return response
 
         return self._mutate(request.operation_id, "/v1/spans", body, dispatch)
 
@@ -51,14 +64,29 @@ class BridgeService:
         span = self._require_live_span(span_handle_id)
 
         def dispatch() -> dict[str, Any]:
-            response = self._sdk.record(span_handle_id, request)
-            header = response.pop("_header", None)
-            if header is not None:
-                self._journal.refresh_context(span["traceContextId"], header)
-            response.update(
-                {"operationId": request.operation_id, "protocolVersion": int(PROTOCOL_VERSION)}
+            def finalize(response: dict[str, Any]) -> dict[str, Any]:
+                response = dict(response)
+                header = response.pop("_header", None)
+                if header is not None:
+                    self._journal.refresh_context(span["traceContextId"], header)
+                response.update(
+                    {
+                        "operationId": request.operation_id,
+                        "protocolVersion": int(PROTOCOL_VERSION),
+                    }
+                )
+                return response
+
+            def late(future: Any) -> None:
+                self._reconcile_late(request.operation_id, future, finalize)
+
+            return finalize(
+                self._sdk.record(
+                    span_handle_id,
+                    request,
+                    on_late_completion=late,
+                )
             )
-            return response
 
         route = f"/v1/spans/{span_handle_id}/records"
         return self._mutate(request.operation_id, route, body, dispatch)
@@ -68,14 +96,23 @@ class BridgeService:
         span = self._require_live_span(span_handle_id)
 
         def dispatch() -> dict[str, Any]:
-            response = self._sdk.finish(span_handle_id)
-            header = response.pop("_header")
-            self._journal.refresh_context(span["traceContextId"], header)
-            self._journal.finish_span(span_handle_id)
-            response.update(
-                {"operationId": request.operation_id, "protocolVersion": int(PROTOCOL_VERSION)}
-            )
-            return response
+            def finalize(response: dict[str, Any]) -> dict[str, Any]:
+                response = dict(response)
+                header = response.pop("_header")
+                self._journal.refresh_context(span["traceContextId"], header)
+                self._journal.finish_span(span_handle_id)
+                response.update(
+                    {
+                        "operationId": request.operation_id,
+                        "protocolVersion": int(PROTOCOL_VERSION),
+                    }
+                )
+                return response
+
+            def late(future: Any) -> None:
+                self._reconcile_late(request.operation_id, future, finalize)
+
+            return finalize(self._sdk.finish(span_handle_id, on_late_completion=late))
 
         route = f"/v1/spans/{span_handle_id}/finish"
         return self._mutate(request.operation_id, route, body, dispatch)
@@ -178,6 +215,21 @@ class BridgeService:
                 ) from error
             self._journal.succeed(operation_id, response)
             return response
+
+    def _reconcile_late(
+        self,
+        operation_id: str,
+        future: Any,
+        finalize: Callable[[dict[str, Any]], dict[str, Any]],
+    ) -> None:
+        try:
+            response = finalize(future.result())
+            self._journal.reconcile_late_success(operation_id, response)
+        except BaseException as error:  # noqa: BLE001 - worker completion boundary.
+            self._journal.reconcile_late_failure(
+                operation_id,
+                "sdkAuthentication" if _sdk_error_code(error) == "600703002" else "sdkRejected",
+            )
 
 
 def _sdk_error_code(error: BaseException) -> str | None:

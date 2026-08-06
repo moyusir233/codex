@@ -1,5 +1,4 @@
-from __future__ import annotations
-
+import time
 from pathlib import Path
 
 import pytest
@@ -108,12 +107,12 @@ def test_queue_rejection_is_safely_replayed_with_same_operation(
     original = sdk.start
     calls = 0
 
-    def reject_once(request, persisted_header=None):
+    def reject_once(request, persisted_header=None, on_late_completion=None):
         nonlocal calls
         calls += 1
         if calls == 1:
             raise BridgeError("queueFull", "queue is full", 429, "safe")
-        return original(request, persisted_header)
+        return original(request, persisted_header, on_late_completion)
 
     monkeypatch.setattr(sdk, "start", reject_once)
     with pytest.raises(BridgeError) as full:
@@ -145,3 +144,36 @@ def test_sdk_auth_code_is_sanitized_and_classified(tmp_path: Path) -> None:
         service.start_span(start_body())
     assert rejected.value.code == "sdkAuthentication"
     assert "CANARY" not in rejected.value.message
+
+
+def test_late_sdk_completion_reconciles_operation_and_span(tmp_path: Path) -> None:
+    client = FakeClient()
+    original_start = client.start_span
+
+    def slow_start(*args, **kwargs):
+        time.sleep(0.05)
+        return original_start(*args, **kwargs)
+
+    client.start_span = slow_start
+    journal = Journal(tmp_path / "journal.sqlite3", "instance")
+    service = BridgeService(
+        journal,
+        FornaxSdkSession(
+            lambda: client,
+            FakeNoop(),
+            operation_timeout=0.005,
+        ),
+        "instance",
+    )
+    with pytest.raises(BridgeError) as timed_out:
+        service.start_span(start_body())
+    assert timed_out.value.code == "ambiguousMutation"
+
+    deadline = time.monotonic() + 1
+    while journal.operation(operation(1))["state"] != "succeeded":
+        assert time.monotonic() < deadline
+        time.sleep(0.005)
+    response = journal.operation(operation(1))["response"]
+    assert journal.span(response["spanHandleId"])["state"] == "live"
+    service.finish_span(response["spanHandleId"], finish_body(2))
+    service.close()

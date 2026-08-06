@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::io::Read;
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::Child;
 use std::process::Command;
@@ -118,18 +120,20 @@ impl ProcessRunner {
             return Err(ProcessError::WorkingDirectoryIsNotAbsolute);
         }
         let redactor = Arc::new(Redactor::new(request.redactions));
-        let mut child = Command::new(&request.executable)
+        let mut command = Command::new(&request.executable);
+        command
             .args(&request.args)
             .current_dir(&request.cwd)
             .env_clear()
             .envs(&request.env)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|error| ProcessError::Spawn {
-                message: redactor.redact(&error.to_string()),
-            })?;
+            .stderr(Stdio::piped());
+        #[cfg(unix)]
+        command.process_group(0);
+        let mut child = command.spawn().map_err(|error| ProcessError::Spawn {
+            message: redactor.redact(&error.to_string()),
+        })?;
         let stdout = spawn_reader(
             child.stdout.take().ok_or_else(|| ProcessError::Collect {
                 message: "stdout pipe was unavailable".to_string(),
@@ -235,6 +239,23 @@ fn join_reader(
 }
 
 fn terminate(child: &mut Child) {
+    #[cfg(unix)]
+    {
+        let process_group = i32::try_from(child.id()).unwrap_or(i32::MAX);
+        // SAFETY: `process_group` is the positive id returned for the child we
+        // spawned as its own process-group leader. A negative pid targets only
+        // that group, and SIGKILL requires no shared Rust memory invariants.
+        let _ = unsafe { libc::kill(-process_group, libc::SIGKILL) };
+    }
+    #[cfg(windows)]
+    {
+        let _ = Command::new("taskkill")
+            .args(["/PID", &child.id().to_string(), "/T", "/F"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
     let _ = child.kill();
     let _ = child.wait();
 }

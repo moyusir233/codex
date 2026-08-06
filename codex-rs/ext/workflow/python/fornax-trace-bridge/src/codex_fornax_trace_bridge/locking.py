@@ -1,7 +1,5 @@
 """Advisory file locks for daemon lifecycle serialization."""
 
-from __future__ import annotations
-
 import fcntl
 import os
 from pathlib import Path
@@ -33,7 +31,7 @@ class FileLock:
             fcntl.flock(self._file.fileno(), fcntl.LOCK_UN)
             self._file.close()
 
-    def __enter__(self) -> FileLock:  # noqa: PYI034 - Python 3.10 lacks typing.Self.
+    def __enter__(self) -> "FileLock":  # noqa: PYI034 - Python 3.10 lacks typing.Self.
         return self
 
     def __exit__(self, *_args: object) -> None:

@@ -49,6 +49,8 @@ pub enum DurableFornaxTraceError {
     Bridge(#[from] FornaxBridgeError),
     #[error("durable Fornax correlation changed concurrently")]
     StaleCorrelation,
+    #[error("applied durable Fornax effect has no valid response: {0}")]
+    InvalidAppliedResponse(String),
 }
 
 /// Couples every bridge mutation to workflow effect and correlation journals.
@@ -90,7 +92,7 @@ impl DurableFornaxTraceWriter {
             span_type,
             parent,
         };
-        let existing = self
+        let (existing, effect_state, response) = self
             .prepare(
                 effect_key,
                 "fornax.trace.start",
@@ -99,6 +101,9 @@ impl DurableFornaxTraceWriter {
                 now_ms,
             )
             .await?;
+        if effect_state == WorkflowEffectState::Applied {
+            return decode_applied_response(response);
+        }
         let result = self
             .writer
             .start(
@@ -142,7 +147,7 @@ impl DurableFornaxTraceWriter {
             operation_id,
             record,
         };
-        let existing = self
+        let (existing, effect_state, response) = self
             .prepare(
                 effect_key,
                 "fornax.trace.record",
@@ -151,6 +156,9 @@ impl DurableFornaxTraceWriter {
                 now_ms,
             )
             .await?;
+        if effect_state == WorkflowEffectState::Applied {
+            return decode_applied_response(response);
+        }
         let result = self
             .writer
             .record(
@@ -188,7 +196,7 @@ impl DurableFornaxTraceWriter {
         now_ms: i64,
     ) -> Result<FinishedSpan, DurableFornaxTraceError> {
         let request = FinishSpanRequest { operation_id };
-        let existing = self
+        let (existing, effect_state, response) = self
             .prepare(
                 effect_key,
                 "fornax.trace.finish",
@@ -197,6 +205,9 @@ impl DurableFornaxTraceWriter {
                 now_ms,
             )
             .await?;
+        if effect_state == WorkflowEffectState::Applied {
+            return decode_applied_response(response);
+        }
         let result = self
             .writer
             .finish(correlation.span_handle_id, operation_id)
@@ -229,7 +240,14 @@ impl DurableFornaxTraceWriter {
         request: &T,
         operation_id: Uuid,
         now_ms: i64,
-    ) -> Result<WorkflowFornaxTraceState, DurableFornaxTraceError> {
+    ) -> Result<
+        (
+            WorkflowFornaxTraceState,
+            WorkflowEffectState,
+            Option<serde_json::Value>,
+        ),
+        DurableFornaxTraceError,
+    > {
         let request = serde_json::to_value(request)?;
         let request_hash = canonical_workflow_request_hash(&request)?;
         let effect = self
@@ -260,7 +278,7 @@ impl DurableFornaxTraceWriter {
             codex_state::WorkflowEffectPlanOutcome::Planned(record)
             | codex_state::WorkflowEffectPlanOutcome::Existing(record) => record,
         };
-        if effect.state == WorkflowEffectState::Planned {
+        let effect_state = if effect.state == WorkflowEffectState::Planned {
             self.store
                 .update_effect(WorkflowEffectUpdate {
                     run_id: self.run_id.clone(),
@@ -272,8 +290,11 @@ impl DurableFornaxTraceWriter {
                     updated_at_ms: now_ms,
                 })
                 .await?;
-        }
-        Ok(state)
+            WorkflowEffectState::Dispatched
+        } else {
+            effect.state
+        };
+        Ok((state, effect_state, effect.response))
     }
 
     async fn persist_success<T: Serialize>(
@@ -366,6 +387,15 @@ impl DurableFornaxTraceWriter {
             .await?;
         Ok(())
     }
+}
+
+fn decode_applied_response<T: serde::de::DeserializeOwned>(
+    response: Option<serde_json::Value>,
+) -> Result<T, DurableFornaxTraceError> {
+    serde_json::from_value(response.ok_or_else(|| {
+        DurableFornaxTraceError::InvalidAppliedResponse("missing response".to_string())
+    })?)
+    .map_err(|error| DurableFornaxTraceError::InvalidAppliedResponse(error.to_string()))
 }
 
 fn error_code(error: &FornaxBridgeError) -> &'static str {

@@ -1,7 +1,5 @@
 """Release manifest and non-secret bridge limits."""
 
-from __future__ import annotations
-
 from importlib.metadata import packages_distributions, version
 
 from .errors import BridgeError

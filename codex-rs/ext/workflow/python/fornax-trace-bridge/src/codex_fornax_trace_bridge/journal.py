@@ -1,7 +1,5 @@
 """SQLite idempotency, span-correlation, and opaque-context journal."""
 
-from __future__ import annotations
-
 import json
 import os
 import sqlite3
@@ -114,6 +112,31 @@ class Journal:
             ).rowcount
             if updated != 1:
                 raise BridgeError("internal", "operation journal lost ownership", 409)
+
+    def reconcile_late_success(self, operation_id: str, response: dict[str, Any]) -> None:
+        """Commit a worker result that arrived after the HTTP response deadline."""
+        encoded = json.dumps(response, sort_keys=True, separators=(",", ":"))
+        with self._lock, self._connection:
+            updated = self._connection.execute(
+                """
+                UPDATE operations
+                SET state = 'succeeded', response_json = ?, error_code = NULL, updated_at_ms = ?
+                WHERE operation_id = ? AND state IN ('running', 'ambiguous')
+                """,
+                (encoded, _now_ms(), operation_id),
+            ).rowcount
+            if updated != 1:
+                raise BridgeError("internal", "late operation journal lost ownership", 409)
+
+    def reconcile_late_failure(self, operation_id: str, code: str) -> None:
+        with self._lock, self._connection:
+            self._connection.execute(
+                """
+                UPDATE operations SET state = 'failed', error_code = ?, updated_at_ms = ?
+                WHERE operation_id = ? AND state IN ('running', 'ambiguous')
+                """,
+                (code, _now_ms(), operation_id),
+            )
 
     def fail(self, operation_id: str, code: str, *, ambiguous: bool) -> None:
         state = "ambiguous" if ambiguous else "failed"

@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
+use std::time::Instant;
 
 use codex_workflow_extension::integrations::fornax::FornaxCli;
 use codex_workflow_extension::integrations::fornax::FornaxCliConfig;
@@ -322,6 +323,15 @@ fn timeout_cancellation_and_output_bounds_terminate_the_child()
         timeout,
         Err(FornaxCliError::Process(ProcessError::Timeout))
     ));
+    let started = Instant::now();
+    let descendant = fake
+        .client("descendant", "0.0.51", Duration::from_millis(30), 64 * 1024)
+        .verify(&AtomicBool::new(false));
+    assert!(matches!(
+        descendant,
+        Err(FornaxCliError::Process(ProcessError::Timeout))
+    ));
+    assert!(started.elapsed() < Duration::from_secs(1));
 
     let cancelled = Arc::new(AtomicBool::new(false));
     let signal = Arc::clone(&cancelled);
@@ -429,6 +439,7 @@ const FAKE_CLI: &str = r#"#!/bin/sh
 printf '%s\n' "$*" >> "$ARG_LOG"
 case "$FAKE_MODE" in
   wait) while :; do :; done ;;
+  descendant) (while :; do /bin/sleep 1; done) & wait ;;
   oversized)
     i=0
     while [ "$i" -lt 200 ]; do printf 'xxxxxxxxxx'; i=$((i + 1)); done

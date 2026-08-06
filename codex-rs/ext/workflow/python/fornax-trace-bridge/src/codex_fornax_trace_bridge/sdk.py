@@ -1,7 +1,5 @@
 """One-client, one-worker mapping to the pinned Fornax SDK."""
 
-from __future__ import annotations
-
 import contextvars
 import queue
 import threading
@@ -37,7 +35,12 @@ class SdkWorker:
         self._thread = threading.Thread(target=self._run, name="fornax-sdk-worker", daemon=True)
         self._thread.start()
 
-    def call(self, action: Callable[[], Any], timeout: float = 30.0) -> Any:
+    def call(
+        self,
+        action: Callable[[], Any],
+        timeout: float = 30.0,
+        on_late_completion: Callable[[Future[Any]], None] | None = None,
+    ) -> Any:
         future: Future[Any] = Future()
         try:
             self._queue.put_nowait(_Task(action=action, future=future))
@@ -48,6 +51,8 @@ class SdkWorker:
         try:
             return future.result(timeout=timeout)
         except TimeoutError as error:
+            if on_late_completion is not None:
+                future.add_done_callback(on_late_completion)
             raise BridgeError(
                 "ambiguousMutation",
                 "Fornax SDK operation exceeded its response deadline",
@@ -84,6 +89,7 @@ class FornaxSdkSession:
         root_context_initializer: Callable[[], None] | None = None,
         maximum_queue: int = 1024,
         sdk_version: str = PINNED_SDK_VERSION,
+        operation_timeout: float = 30.0,
     ) -> None:
         self._worker = SdkWorker(maximum_queue)
         self._client = self._worker.call(client_factory)
@@ -91,10 +97,11 @@ class FornaxSdkSession:
         self._initialize_root = root_context_initializer or (lambda: None)
         self._handles: dict[str, _SpanState] = {}
         self._closed = False
+        self._operation_timeout = operation_timeout
         self.sdk_version = sdk_version
 
     @classmethod
-    def from_environment(cls) -> FornaxSdkSession:
+    def from_environment(cls) -> "FornaxSdkSession":
         import os
 
         ak = os.environ.get("FORNAX_AK")
@@ -150,6 +157,7 @@ class FornaxSdkSession:
         self,
         request: StartSpan,
         persisted_header: dict[str, str] | None = None,
+        on_late_completion: Callable[[Future[Any]], None] | None = None,
     ) -> dict[str, Any]:
         if request.parent.kind == "liveSpan":
             parent_state = self._handles.get(request.parent.identifier or "")
@@ -185,9 +193,18 @@ class FornaxSdkSession:
                 "_header": header,
             }
 
-        return self._worker.call(lambda: context.run(in_context))
+        return self._worker.call(
+            lambda: context.run(in_context),
+            timeout=self._operation_timeout,
+            on_late_completion=on_late_completion,
+        )
 
-    def record(self, handle_id: str, request: RecordSpan) -> dict[str, Any]:
+    def record(
+        self,
+        handle_id: str,
+        request: RecordSpan,
+        on_late_completion: Callable[[Future[Any]], None] | None = None,
+    ) -> dict[str, Any]:
         state = self._handles.get(handle_id)
         if state is None:
             raise BridgeError("unknownSpan", "span is not live in this instance", 404)
@@ -212,9 +229,17 @@ class FornaxSdkSession:
                 response["traceContextId"] = state.trace_context_id
             return response
 
-        return self._worker.call(lambda: state.context.run(in_context))
+        return self._worker.call(
+            lambda: state.context.run(in_context),
+            timeout=self._operation_timeout,
+            on_late_completion=on_late_completion,
+        )
 
-    def finish(self, handle_id: str) -> dict[str, Any]:
+    def finish(
+        self,
+        handle_id: str,
+        on_late_completion: Callable[[Future[Any]], None] | None = None,
+    ) -> dict[str, Any]:
         state = self._handles.get(handle_id)
         if state is None:
             raise BridgeError("unknownSpan", "span is not live in this instance", 404)
@@ -234,7 +259,11 @@ class FornaxSdkSession:
                 "_header": header,
             }
 
-        return self._worker.call(lambda: state.context.run(in_context))
+        return self._worker.call(
+            lambda: state.context.run(in_context),
+            timeout=self._operation_timeout,
+            on_late_completion=on_late_completion,
+        )
 
     def close(self, *, force: bool = False) -> None:
         if self._closed:

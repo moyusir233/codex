@@ -1,7 +1,5 @@
 """Stable bridge error codes and sanitized envelopes."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 
 

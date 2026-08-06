@@ -198,7 +198,7 @@ async fn fornax_bridge_durable_writer_persists_every_start_correlation() {
 
     let finish_operation =
         Uuid::parse_str("00000000-0000-4000-8000-000000000003").expect("finish UUID");
-    durable
+    let finished = durable
         .finish(
             "trace.root.finish",
             &span_correlation,
@@ -216,4 +216,16 @@ async fn fornax_bridge_durable_writer_persists_every_start_correlation() {
     assert_eq!(finish.state, WorkflowFornaxTraceState::Finished);
     assert_eq!(finish.span_handle_id, correlation.span_handle_id);
     server_thread.join().expect("server thread");
+    assert_eq!(
+        finished,
+        durable
+            .finish(
+                "trace.root.finish",
+                &span_correlation,
+                finish_operation,
+                104,
+            )
+            .await
+            .expect("replay applied finish without bridge")
+    );
 }
