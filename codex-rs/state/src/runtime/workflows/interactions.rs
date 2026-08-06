@@ -28,6 +28,73 @@ pub enum WorkflowInteractionPlanOutcome {
 }
 
 impl WorkflowStore {
+    /// Resolves a waiting interaction and resumes only its correlated run wait atomically.
+    pub async fn resolve_interaction(
+        &self,
+        interaction_id: &str,
+        response_artifact_id: &str,
+        updated_at_ms: i64,
+    ) -> Result<(bool, bool), WorkflowStoreError> {
+        let mut tx = self.pool().begin().await?;
+        let row = sqlx::query(
+            r#"
+UPDATE workflow_interactions
+SET state = 'resolved', response_artifact_id = ?, updated_at_ms = ?
+WHERE interaction_id = ? AND state = 'waiting'
+RETURNING run_id, kind
+            "#,
+        )
+        .bind(response_artifact_id)
+        .bind(updated_at_ms)
+        .bind(interaction_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(row) = row else {
+            tx.rollback().await?;
+            return Ok((false, false));
+        };
+        let run_id = row.try_get::<String, _>("run_id")?;
+        let kind = row.try_get::<String, _>("kind")?;
+        append_event(
+            &mut tx,
+            &run_id,
+            "interaction.updated",
+            Some(interaction_id),
+            &json!({"kind": kind, "state": "resolved"}),
+            updated_at_ms,
+        )
+        .await?;
+        let resumed = sqlx::query(
+            r#"
+UPDATE workflow_runs
+SET status = 'pending', wake_json = NULL, row_version = row_version + 1,
+    updated_at_ms = ?
+WHERE run_id = ? AND status = 'waiting'
+  AND json_extract(wake_json, '$.HumanInteraction') = ?
+            "#,
+        )
+        .bind(updated_at_ms)
+        .bind(&run_id)
+        .bind(interaction_id)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected()
+            == 1;
+        if resumed {
+            append_event(
+                &mut tx,
+                &run_id,
+                "run.resumed",
+                Some(&run_id),
+                &json!({"source": "interaction.response"}),
+                updated_at_ms,
+            )
+            .await?;
+        }
+        tx.commit().await?;
+        Ok((true, resumed))
+    }
+
     /// Reads one interaction by its stable identity.
     pub async fn read_interaction(
         &self,

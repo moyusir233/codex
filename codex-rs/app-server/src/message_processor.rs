@@ -332,30 +332,31 @@ impl MessageProcessor {
         let thread_watch_manager =
             crate::thread_status::ThreadWatchManager::new_with_outgoing(outgoing.clone());
         let thread_list_state_permit = Arc::new(Semaphore::new(/*permits*/ 1));
-        if let Some(workflow_service) = workflow_service.as_ref()
-            && let Err(error) =
-                workflow_service
-                    .node_host_slot()
-                    .bind(Arc::new(AppServerWorkflowNodeHost::new(
-                        AppServerWorkflowNodeHostArgs {
-                            thread_manager: Arc::clone(&thread_manager),
-                            thread_store: Arc::clone(&thread_store),
-                            config: Arc::clone(&config),
-                            session_source: session_source_for_workflow,
-                            outgoing: Arc::clone(&outgoing),
-                            pending_thread_unloads: Arc::clone(&pending_thread_unloads),
-                            thread_state_manager: thread_state_manager.clone(),
-                            thread_watch_manager: thread_watch_manager.clone(),
-                            thread_list_state_permit: Arc::clone(&thread_list_state_permit),
-                            skills_watcher: Arc::clone(&skills_watcher),
-                            workflow_subscriptions: workflow_subscriptions.clone(),
-                            workflow_store: workflow_service.store().clone(),
-                        },
-                    )))
-        {
-            tracing::error!(%error, "failed to bind workflow node host");
+        let mut workflow_node_host = None;
+        if let Some(workflow_service) = workflow_service.as_ref() {
+            let node_host = Arc::new(AppServerWorkflowNodeHost::new(
+                AppServerWorkflowNodeHostArgs {
+                    thread_manager: Arc::clone(&thread_manager),
+                    thread_store: Arc::clone(&thread_store),
+                    config: Arc::clone(&config),
+                    session_source: session_source_for_workflow,
+                    outgoing: Arc::clone(&outgoing),
+                    pending_thread_unloads: Arc::clone(&pending_thread_unloads),
+                    thread_state_manager: thread_state_manager.clone(),
+                    thread_watch_manager: thread_watch_manager.clone(),
+                    thread_list_state_permit: Arc::clone(&thread_list_state_permit),
+                    skills_watcher: Arc::clone(&skills_watcher),
+                    workflow_subscriptions: workflow_subscriptions.clone(),
+                    workflow_store: workflow_service.store().clone(),
+                },
+            ));
+            match workflow_service.node_host_slot().bind(node_host.clone()) {
+                Ok(()) => workflow_node_host = Some(node_host),
+                Err(error) => tracing::error!(%error, "failed to bind workflow node host"),
+            }
         }
-        if let Some(workflow_service) = workflow_service.as_ref()
+        if let (Some(workflow_service), Some(node_host)) =
+            (workflow_service.as_ref(), workflow_node_host)
             && config.features.enabled(codex_features::Feature::Workflows)
         {
             let workflow_service = workflow_service.as_ref().clone();
@@ -366,6 +367,16 @@ impl MessageProcessor {
                 30_000,
             );
             tokio::spawn(async move {
+                match node_host
+                    .rehydrate_nonterminal_threads(chrono::Utc::now().timestamp_millis())
+                    .await
+                {
+                    Ok(loaded) => tracing::info!(loaded, "rehydrated workflow node threads"),
+                    Err(error) => {
+                        tracing::error!(%error, "workflow thread rehydration failed");
+                        return;
+                    }
+                }
                 match recovery
                     .recover_nonterminal_runs(chrono::Utc::now().timestamp_millis())
                     .await

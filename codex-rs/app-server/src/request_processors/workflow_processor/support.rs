@@ -123,15 +123,39 @@ impl WorkflowRequestProcessor {
             if let Some(capability) = service.prompt_review_capability() {
                 driver = driver.with_prompt_review_capability(capability);
             }
-            if let Err(error) = driver
-                .drive_until_blocked(
-                    run_id,
-                    now_ms(),
-                    NonZeroUsize::new(DRIVER_STEP_LIMIT).unwrap_or(NonZeroUsize::MIN),
-                )
-                .await
-            {
-                tracing::warn!(%error, %run_id, "workflow drive failed");
+            let mut busy_backoff = Duration::from_millis(10);
+            loop {
+                match driver
+                    .drive_until_blocked(
+                        run_id,
+                        now_ms(),
+                        NonZeroUsize::new(DRIVER_STEP_LIMIT).unwrap_or(NonZeroUsize::MIN),
+                    )
+                    .await
+                {
+                    Ok(DriveOutcome::StepLimitReached | DriveOutcome::Continued) => {
+                        tokio::task::yield_now().await;
+                    }
+                    Ok(DriveOutcome::Busy) => {
+                        tokio::time::sleep(busy_backoff).await;
+                        busy_backoff = (busy_backoff * 2).min(Duration::from_secs(1));
+                    }
+                    Ok(DriveOutcome::Completed | DriveOutcome::Failed) => {
+                        if let Err(error) = service.detach_run_observers(run_id).await {
+                            tracing::warn!(%error, %run_id, "failed to release workflow observers");
+                        }
+                        break;
+                    }
+                    Ok(
+                        DriveOutcome::Waiting
+                        | DriveOutcome::Cancelling
+                        | DriveOutcome::NeedsOperator,
+                    ) => break,
+                    Err(error) => {
+                        tracing::warn!(%error, %run_id, "workflow drive failed");
+                        break;
+                    }
+                }
             }
             if let Some(subscriptions) = subscriptions {
                 let _ = subscriptions.publish_run(&run_id.to_string()).await;

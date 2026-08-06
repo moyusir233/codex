@@ -49,12 +49,25 @@ async fn store_writes_private_atomic_artifact_and_manifest() {
             classification: ArtifactClassification::Sensitive,
             media_type: "application/json",
             bytes: br#"{"ok":true}"#,
-            created_at_ms: 11,
+            created_at_ms: 12,
         })
         .await
         .expect("write artifact");
+    let replay = store
+        .write(WorkflowArtifactWrite {
+            run_id,
+            artifact_id: metadata.artifact_id,
+            relative_path: Path::new("reports/final.json"),
+            classification: ArtifactClassification::Sensitive,
+            media_type: "application/json",
+            bytes: br#"{"ok":true}"#,
+            created_at_ms: 11,
+        })
+        .await
+        .expect("replay identical artifact write");
 
     assert_eq!(metadata.byte_count, 11);
+    assert_eq!(metadata, replay);
     let manifest = runtime
         .workflows()
         .read_artifact(&metadata.artifact_id.to_string())

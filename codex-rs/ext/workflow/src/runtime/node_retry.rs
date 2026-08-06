@@ -80,7 +80,7 @@ impl NodeHandle {
                 created_at_ms: now,
             })
             .await?;
-        let record = match planned {
+        let mut record = match planned {
             codex_state::WorkflowEffectPlanOutcome::Planned(record)
             | codex_state::WorkflowEffectPlanOutcome::Existing(record) => record,
         };
@@ -95,31 +95,101 @@ impl NodeHandle {
                 })?;
             ThreadId::from_string(value)
                 .map_err(|error| NodeError::InvalidThreadId(error.to_string()))?
-        } else if record.state == WorkflowEffectState::Planned {
+        } else {
             let host = self.service.inner.node_host.get()?;
-            let materialized = host
-                .materialize_node(MaterializeNodeRequest {
-                    binding: self.binding.clone(),
-                    spec: self.spec.clone(),
-                })
-                .await?;
-            self.service
+            if record.state == WorkflowEffectState::Planned {
+                self.service
+                    .store()
+                    .update_effect(WorkflowEffectUpdate {
+                        run_id: self.binding.run_id.to_string(),
+                        effect_key: effect.to_string(),
+                        expected_state: WorkflowEffectState::Planned,
+                        state: WorkflowEffectState::Dispatched,
+                        response: None,
+                        error_code: None,
+                        updated_at_ms: now,
+                    })
+                    .await?;
+                record.state = WorkflowEffectState::Dispatched;
+            }
+            if record.state != WorkflowEffectState::Dispatched {
+                return Err(NodeError::InvalidState(
+                    "fresh-thread effect requires reconciliation".to_string(),
+                ));
+            }
+            let known = self
+                .service
                 .store()
-                .append_node_thread(
-                    &self.binding.node_id.to_string(),
-                    &materialized.thread_id.to_string(),
-                    now,
-                )
+                .list_node_threads(&self.binding.node_id.to_string())
                 .await?;
+            let thread_id = if let Some(value) = record
+                .response
+                .as_ref()
+                .and_then(|response| response.get("thread_id"))
+                .and_then(serde_json::Value::as_str)
+            {
+                ThreadId::from_string(value)
+                    .map_err(|error| NodeError::InvalidThreadId(error.to_string()))?
+            } else {
+                let discovered = host.find_materialized_nodes(self.binding.clone()).await?;
+                let mut unknown = discovered.into_iter().filter(|thread_id| {
+                    !known
+                        .iter()
+                        .any(|known| known.thread_id == thread_id.to_string())
+                });
+                let candidate = unknown.next();
+                if unknown.next().is_some() {
+                    return Err(NodeError::InvalidState(
+                        "fresh-thread effect discovered multiple unadopted threads".to_string(),
+                    ));
+                }
+                let thread_id = match candidate {
+                    Some(thread_id) => thread_id,
+                    None => {
+                        host.materialize_node(MaterializeNodeRequest {
+                            binding: self.binding.clone(),
+                            spec: self.spec.clone(),
+                        })
+                        .await?
+                        .thread_id
+                    }
+                };
+                self.service
+                    .store()
+                    .update_effect(WorkflowEffectUpdate {
+                        run_id: self.binding.run_id.to_string(),
+                        effect_key: effect.to_string(),
+                        expected_state: WorkflowEffectState::Dispatched,
+                        state: WorkflowEffectState::Dispatched,
+                        response: Some(json!({ "thread_id": thread_id })),
+                        error_code: None,
+                        updated_at_ms: now,
+                    })
+                    .await?;
+                thread_id
+            };
+            if !known
+                .iter()
+                .any(|known| known.thread_id == thread_id.to_string())
+            {
+                self.service
+                    .store()
+                    .append_node_thread(
+                        &self.binding.node_id.to_string(),
+                        &thread_id.to_string(),
+                        now,
+                    )
+                    .await?;
+            }
             if !self
                 .service
                 .store()
                 .update_effect(WorkflowEffectUpdate {
                     run_id: self.binding.run_id.to_string(),
                     effect_key: effect.to_string(),
-                    expected_state: WorkflowEffectState::Planned,
+                    expected_state: WorkflowEffectState::Dispatched,
                     state: WorkflowEffectState::Applied,
-                    response: Some(json!({ "thread_id": materialized.thread_id })),
+                    response: Some(json!({ "thread_id": thread_id })),
                     error_code: None,
                     updated_at_ms: now,
                 })
@@ -129,11 +199,7 @@ impl NodeHandle {
                     "fresh-thread effect lost its planned state".to_string(),
                 ));
             }
-            materialized.thread_id
-        } else {
-            return Err(NodeError::InvalidState(
-                "fresh-thread effect requires reconciliation".to_string(),
-            ));
+            thread_id
         };
         Ok(Self {
             service: self.service.clone(),

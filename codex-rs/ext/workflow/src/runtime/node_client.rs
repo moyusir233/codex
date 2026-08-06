@@ -62,6 +62,13 @@ impl NodeClient<'_> {
             return self.get(NodeId::parse(node_id)?).await;
         }
 
+        let resolved_spec = self
+            .service
+            .inner
+            .node_host
+            .get()?
+            .resolve_node_spec(spec.clone())
+            .await?;
         let (node, spec) = match self
             .service
             .store()
@@ -72,16 +79,14 @@ impl NodeClient<'_> {
         {
             Some(node) => {
                 let persisted_spec = serde_json::from_value(node.spec.clone())?;
+                if persisted_spec != resolved_spec {
+                    return Err(NodeError::SpecificationConflict {
+                        node_key: node.node_key,
+                    });
+                }
                 (node, persisted_spec)
             }
             None => {
-                let resolved_spec = self
-                    .service
-                    .inner
-                    .node_host
-                    .get()?
-                    .resolve_node_spec(spec)
-                    .await?;
                 let node_id = NodeId::new();
                 let node = self
                     .service

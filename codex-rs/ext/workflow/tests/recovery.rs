@@ -194,6 +194,7 @@ async fn recovery_repairs_thread_and_terminal_attempt_then_drives_exact_definiti
     assert_eq!(first.repaired_thread_bindings, 1);
     assert_eq!(first.reconciled_terminal_attempts, 1);
     assert_eq!(first.driven_runs, 1);
+    assert_eq!(host.detaches.load(std::sync::atomic::Ordering::Acquire), 1);
     assert_eq!(
         runtime
             .workflows()
@@ -290,7 +291,7 @@ async fn recovery_fails_closed_for_missing_definition() {
 }
 
 #[tokio::test]
-async fn recovery_marks_unterminated_turn_interrupted_and_schedules_retry() {
+async fn recovery_advances_planned_unterminated_turn_before_scheduling_retry() {
     let (_home, runtime) = support::runtime().await;
     let run_id = WorkflowRunId::new();
     support::create_run(
@@ -344,20 +345,6 @@ async fn recovery_marks_unterminated_turn_interrupted_and_schedules_retry() {
         )
         .await
         .expect("create interrupted attempt");
-    runtime
-        .workflows()
-        .transition_node_attempt(
-            &attempt_id,
-            WorkflowNodeAttemptTransition {
-                expected_status: WorkflowNodeAttemptStatus::Planned,
-                status: WorkflowNodeAttemptStatus::Submitted,
-                turn_id: Some(attempt_id.clone()),
-                error_code: None,
-                updated_at_ms: 104,
-            },
-        )
-        .await
-        .expect("submit interrupted attempt");
     let host = Arc::new(support::TestHost::with_thread(thread_id));
     host.set_recovery(&attempt_id, RecoveredTurnState::Unterminated);
     let mut registry = WorkflowRegistryBuilder::new();

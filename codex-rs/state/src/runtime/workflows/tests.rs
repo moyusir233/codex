@@ -57,6 +57,121 @@ async fn create_run(runtime: &StateRuntime, run_id: &str) {
 }
 
 #[tokio::test]
+async fn interaction_resolution_only_resumes_its_correlated_wait() {
+    let home = unique_temp_dir();
+    let runtime = init(&home).await;
+    create_run(runtime.as_ref(), "run-interaction-cas").await;
+    let store = runtime.workflows();
+    let lease = store
+        .acquire_lease("run-interaction-cas", "test", 101, 1_000)
+        .await
+        .expect("acquire lease")
+        .expect("lease available");
+    store
+        .transition_run(
+            "run-interaction-cas",
+            &lease.owner,
+            lease.fence,
+            1,
+            WorkflowRunTransition {
+                status: WorkflowRunStatus::Waiting,
+                state_schema_version: 1,
+                state: json!({"step": 0}),
+                output: None,
+                error_code: None,
+                wake: Some(json!({"HumanInteraction": "interaction-current"})),
+                event_kind: "run.waiting".to_string(),
+                event_entity_id: Some("run-interaction-cas".to_string()),
+                event_metadata: json!({}),
+                updated_at_ms: 102,
+            },
+        )
+        .await
+        .expect("wait for interaction");
+    for interaction_id in [
+        "interaction-stale",
+        "interaction-current",
+        "interaction-timeout",
+    ] {
+        store
+            .plan_interaction(WorkflowInteractionPlan {
+                interaction_id: interaction_id.to_string(),
+                run_id: "run-interaction-cas".to_string(),
+                dedupe_key: interaction_id.to_string(),
+                kind: "approval".to_string(),
+                request: json!({}),
+                deadline_ms: None,
+                created_at_ms: 103,
+            })
+            .await
+            .expect("plan interaction");
+        store
+            .update_interaction(
+                interaction_id,
+                WorkflowInteractionState::Planned,
+                WorkflowInteractionState::Waiting,
+                None,
+                104,
+            )
+            .await
+            .expect("mark waiting");
+    }
+    store
+        .update_interaction(
+            "interaction-timeout",
+            WorkflowInteractionState::Waiting,
+            WorkflowInteractionState::TimedOut,
+            None,
+            105,
+        )
+        .await
+        .expect("time out interaction");
+
+    assert_eq!(
+        (true, false),
+        store
+            .resolve_interaction("interaction-stale", "artifact-stale", 106)
+            .await
+            .expect("resolve stale interaction")
+    );
+    assert_eq!(
+        (false, false),
+        store
+            .resolve_interaction("interaction-timeout", "artifact-late", 107)
+            .await
+            .expect("reject late response")
+    );
+    let waiting = store
+        .read_run("run-interaction-cas")
+        .await
+        .expect("read waiting run")
+        .expect("run exists");
+    assert_eq!(WorkflowRunStatus::Waiting, waiting.status);
+    assert_eq!(
+        Some(json!({"HumanInteraction": "interaction-current"})),
+        waiting.wake
+    );
+    assert_eq!(
+        (true, true),
+        store
+            .resolve_interaction("interaction-current", "artifact-current", 108)
+            .await
+            .expect("resolve current interaction")
+    );
+    assert_eq!(
+        WorkflowRunStatus::Pending,
+        store
+            .read_run("run-interaction-cas")
+            .await
+            .expect("read resumed run")
+            .expect("run exists")
+            .status
+    );
+    runtime.close().await;
+    let _ = tokio::fs::remove_dir_all(home).await;
+}
+
+#[tokio::test]
 async fn workflow_fornax_correlations_are_idempotent_immutable_and_restart_durable() {
     let home = unique_temp_dir();
     {

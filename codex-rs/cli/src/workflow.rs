@@ -312,6 +312,7 @@ async fn run_connected(
                     }
                     Some(AppServerEvent::ServerNotification(notification)) => {
                         if let Some(sequence) = workflow_sequence(&notification) {
+                            let mut refreshed = false;
                             if sequence > last_sequence.saturating_add(1) {
                                 run = subscribe(
                                     client,
@@ -323,13 +324,14 @@ async fn run_connected(
                                 )
                                 .await
                                 .map_err(|error| render_request_error(output, error))?;
+                                refreshed = true;
                             }
-                            if sequence > last_sequence {
+                            if !refreshed && sequence > last_sequence {
                                 output.event("workflowNotification", &notification)?;
                                 last_sequence = sequence;
-                            }
-                            if let ServerNotification::WorkflowRunUpdated(update) = notification {
-                                run.status = update.status;
+                                if let ServerNotification::WorkflowRunUpdated(update) = notification {
+                                    run.status = update.status;
+                                }
                             }
                         }
                     }

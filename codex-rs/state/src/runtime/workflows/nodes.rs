@@ -113,13 +113,18 @@ WHERE node_id = ?
     ) -> Result<Option<WorkflowNodeRecord>, WorkflowStoreError> {
         let row = sqlx::query(
             r#"
-SELECT node_id, run_id, node_key, thread_id, spec_json, status,
-       retry_at_ms, failure_policy,
-       row_version, created_at_ms, updated_at_ms
-FROM workflow_nodes
-WHERE thread_id = ?
+SELECT n.node_id, n.run_id, n.node_key, n.thread_id, n.spec_json, n.status,
+       n.retry_at_ms, n.failure_policy,
+       n.row_version, n.created_at_ms, n.updated_at_ms
+FROM workflow_nodes AS n
+WHERE n.thread_id = ?
+   OR EXISTS (
+       SELECT 1 FROM workflow_node_threads AS t
+       WHERE t.node_id = n.node_id AND t.thread_id = ?
+   )
             "#,
         )
+        .bind(thread_id)
         .bind(thread_id)
         .fetch_optional(self.pool())
         .await?;

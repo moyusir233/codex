@@ -14,6 +14,7 @@ use codex_workflow_extension::ConfirmedHistoryDeletion;
 use codex_workflow_extension::EffectKey;
 use codex_workflow_extension::MaterializeNodeRequest;
 use codex_workflow_extension::MaterializedNode;
+use codex_workflow_extension::NodeApprovals;
 use codex_workflow_extension::NodeHostFuture;
 use codex_workflow_extension::NodeInput;
 use codex_workflow_extension::NodeKey;
@@ -266,6 +267,23 @@ async fn node_lifecycle_journals_idempotent_turns_and_delegates_explicit_operati
         )
         .await
         .expect("ensure existing node");
+    let Err(conflict) = service
+        .nodes(run_id)
+        .ensure(
+            EffectKey::new("ensure-primary-conflict").expect("effect key"),
+            NodeSpec::builder(NodeKey::new("primary").expect("node key"))
+                .approvals(NodeApprovals::ExistingClient)
+                .build()
+                .expect("conflicting spec"),
+        )
+        .await
+    else {
+        panic!("existing node key must reject a conflicting specification");
+    };
+    assert!(matches!(
+        conflict,
+        codex_workflow_extension::NodeError::SpecificationConflict { .. }
+    ));
     assert_eq!(
         (node.id(), node.thread_id()),
         (replayed.id(), replayed.thread_id())

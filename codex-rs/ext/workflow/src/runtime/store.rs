@@ -194,6 +194,15 @@ impl WorkflowArtifactStore {
             created_at_ms: write.created_at_ms,
         };
         if let Err(error) = self.state.record_artifact(&manifest).await {
+            if matches!(error, codex_state::WorkflowStoreError::DuplicateArtifact)
+                && let Some(existing) = self.state.read_artifact(&manifest.artifact_id).await?
+                && artifact_manifests_match(&existing, &manifest)
+            {
+                return Ok(ArtifactMetadata {
+                    created_at_ms: existing.created_at_ms,
+                    ..metadata
+                });
+            }
             return Err(error.into());
         }
         Ok(metadata)
@@ -228,6 +237,19 @@ impl WorkflowArtifactStore {
         tokio::fs::remove_file(temporary).await?;
         Ok(())
     }
+}
+
+fn artifact_manifests_match(
+    existing: &WorkflowArtifactRecord,
+    replay: &WorkflowArtifactRecord,
+) -> bool {
+    existing.artifact_id == replay.artifact_id
+        && existing.run_id == replay.run_id
+        && existing.relative_path == replay.relative_path
+        && existing.classification == replay.classification
+        && existing.media_type == replay.media_type
+        && existing.byte_count == replay.byte_count
+        && existing.sha256 == replay.sha256
 }
 
 impl From<ArtifactClassification> for WorkflowArtifactClassification {

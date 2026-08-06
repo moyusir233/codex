@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -16,9 +15,6 @@ use codex_app_server_protocol::InitializeParams;
 use codex_app_server_protocol::InitializeResponse;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ServerNotification;
-use codex_app_server_protocol::ThreadResumeParams;
-use codex_app_server_protocol::ThreadResumeResponse;
-use codex_app_server_protocol::TurnStatus;
 use codex_arg0::Arg0DispatchPaths;
 use codex_config::CloudConfigBundleLoader;
 use codex_config::LoaderOverrides;
@@ -38,6 +34,7 @@ use codex_workflow_extension::EffectKey;
 use codex_workflow_extension::NodeApprovals;
 use codex_workflow_extension::NodeInput;
 use codex_workflow_extension::NodeKey;
+use codex_workflow_extension::NodeRuntimeStatus;
 use codex_workflow_extension::NodeSpec;
 use codex_workflow_extension::NodeTurnStatus;
 use codex_workflow_extension::RuntimeShutdown;
@@ -188,35 +185,34 @@ async fn extension_order_restores_workflow_binding_before_skills_when_launches_a
         })
         .await?;
     assert!(stored.history.is_some(), "shutdown must preserve rollout");
-
-    processor
-        .process_client_request(
-            WORKFLOW_CONNECTION_ID,
-            ClientRequest::ThreadResume {
-                request_id: RequestId::Integer(2),
-                params: ThreadResumeParams {
-                    thread_id: thread_id.to_string(),
-                    config: Some(HashMap::from([(
-                        "features.workflows".to_string(),
-                        json!(false),
-                    )])),
-                    ..Default::default()
-                },
-            },
-            Arc::clone(&session),
-            &outbound_initialized,
-        )
-        .await;
-    let resumed: ThreadResumeResponse = read_response(&mut outgoing_rx, 2).await;
-    assert_eq!(resumed.thread.id, thread_id.to_string());
-    assert_eq!(
-        resumed.thread.turns.last().map(|turn| &turn.status),
-        Some(&TurnStatus::Completed)
-    );
+    let node_id = node.id();
+    drop(node);
+    drop(service);
+    drop(processor);
+    drop(outgoing_rx);
+    drop(thread_store);
+    state.close().await;
+    let state =
+        StateRuntime::init(codex_home.path().to_path_buf(), "mock_provider".to_string()).await?;
+    let thread_store = codex_core::thread_store_from_config(config.as_ref(), Some(state.clone()));
+    let (processor, _restarted_outgoing_rx) =
+        build_processor(Arc::clone(&config), Arc::clone(&state)).await;
+    let restarted_service = processor
+        .workflow_service()
+        .expect("restarted app-server installs workflow service");
+    let node = restarted_service.nodes(run_id).get(node_id).await?;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    while node.status().await? == NodeRuntimeStatus::Shutdown {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "startup recovery did not rehydrate the workflow thread"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
     let resumed_turn = node
         .submit(
             EffectKey::new("resumed-turn")?,
-            NodeInput::text("continue after explicit resume"),
+            NodeInput::text("continue after process restart"),
         )
         .await?;
     let resumed_result = node.await_turn(resumed_turn.turn_id).await?;

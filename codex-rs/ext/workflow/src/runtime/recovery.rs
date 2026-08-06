@@ -109,11 +109,40 @@ impl WorkflowRecovery {
                     if let Some(capability) = self.prompt_review.as_ref().map(Arc::clone) {
                         driver = driver.with_prompt_review_capability(capability);
                     }
-                    if !matches!(
-                        driver.step_once(run_id, now_ms).await?,
-                        DriveOutcome::Busy | DriveOutcome::NeedsOperator
-                    ) {
-                        report.driven_runs += 1;
+                    let mut busy_backoff = std::time::Duration::from_millis(10);
+                    loop {
+                        match driver
+                            .drive_until_blocked(
+                                run_id,
+                                now_ms,
+                                std::num::NonZeroUsize::new(1_000)
+                                    .unwrap_or(std::num::NonZeroUsize::MIN),
+                            )
+                            .await?
+                        {
+                            DriveOutcome::StepLimitReached | DriveOutcome::Continued => {
+                                tokio::task::yield_now().await;
+                            }
+                            DriveOutcome::Busy => {
+                                tokio::time::sleep(busy_backoff).await;
+                                busy_backoff =
+                                    (busy_backoff * 2).min(std::time::Duration::from_secs(1));
+                            }
+                            DriveOutcome::Completed | DriveOutcome::Failed => {
+                                if let Err(error) = self.service.detach_run_observers(run_id).await
+                                {
+                                    tracing::warn!(%error, %run_id, "failed to release workflow observers");
+                                }
+                                report.driven_runs += 1;
+                                break;
+                            }
+                            DriveOutcome::Waiting
+                            | DriveOutcome::Cancelling
+                            | DriveOutcome::NeedsOperator => {
+                                report.driven_runs += 1;
+                                break;
+                            }
+                        }
                     }
                 }
                 ReconcileOutcome::Waiting | ReconcileOutcome::NeedsOperator => {}
@@ -295,6 +324,31 @@ impl WorkflowRecovery {
                         input_hash: decode_hash(&attempt.input_hash)?,
                     })
                     .await?;
+                let expected_status = if attempt.status == WorkflowNodeAttemptStatus::Planned
+                    && !matches!(
+                        recovered,
+                        RecoveredTurnState::NoBoundary | RecoveredTurnState::Conflict
+                    ) {
+                    self.service
+                        .store()
+                        .transition_node_attempt(
+                            &attempt.attempt_id,
+                            WorkflowNodeAttemptTransition {
+                                expected_status: WorkflowNodeAttemptStatus::Planned,
+                                status: WorkflowNodeAttemptStatus::Submitted,
+                                turn_id: attempt
+                                    .turn_id
+                                    .clone()
+                                    .or(Some(attempt.submission_id.clone())),
+                                error_code: None,
+                                updated_at_ms: now_ms,
+                            },
+                        )
+                        .await?;
+                    WorkflowNodeAttemptStatus::Submitted
+                } else {
+                    attempt.status
+                };
                 match recovered {
                     RecoveredTurnState::NoBoundary => {}
                     RecoveredTurnState::Conflict => {
@@ -314,7 +368,7 @@ impl WorkflowRecovery {
                             .transition_node_attempt(
                                 &attempt.attempt_id,
                                 WorkflowNodeAttemptTransition {
-                                    expected_status: attempt.status,
+                                    expected_status,
                                     status: WorkflowNodeAttemptStatus::Interrupted,
                                     turn_id: attempt
                                         .turn_id
@@ -353,7 +407,7 @@ impl WorkflowRecovery {
                             .transition_node_attempt(
                                 &attempt.attempt_id,
                                 WorkflowNodeAttemptTransition {
-                                    expected_status: attempt.status,
+                                    expected_status,
                                     status,
                                     turn_id: Some(result.turn_id),
                                     error_code: result.error.map(|_| "turn_failed".to_string()),

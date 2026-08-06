@@ -402,6 +402,19 @@ impl LarkInteractionService {
         now_ms: i64,
         cancelled: &AtomicBool,
     ) -> Result<HumanInteractionOutcome, LarkInteractionError> {
+        let durable = self
+            .store
+            .read_interaction(&interaction_id.to_string())
+            .await?
+            .ok_or(LarkInteractionError::MissingInteraction)?;
+        if matches!(
+            durable.state,
+            WorkflowInteractionState::Resolved
+                | WorkflowInteractionState::TimedOut
+                | WorkflowInteractionState::Cancelled
+        ) {
+            return interaction_outcome(interaction_id, &durable);
+        }
         self.poll_replies(interaction_id, cancelled).await?;
         let _ = self
             .store
@@ -412,26 +425,7 @@ impl LarkInteractionService {
             .read_interaction(&interaction_id.to_string())
             .await?
             .ok_or(LarkInteractionError::MissingInteraction)?;
-        Ok(match interaction.state {
-            WorkflowInteractionState::Planned | WorkflowInteractionState::Waiting => {
-                HumanInteractionOutcome::Waiting { interaction_id }
-            }
-            WorkflowInteractionState::Resolved => HumanInteractionOutcome::Resolved {
-                interaction_id,
-                artifact_id: ArtifactId::parse(
-                    interaction
-                        .response_artifact_id
-                        .as_deref()
-                        .ok_or(LarkInteractionError::MissingArtifact)?,
-                )?,
-            },
-            WorkflowInteractionState::TimedOut => {
-                HumanInteractionOutcome::TimedOut { interaction_id }
-            }
-            WorkflowInteractionState::Cancelled => {
-                HumanInteractionOutcome::Cancelled { interaction_id }
-            }
-        })
+        interaction_outcome(interaction_id, &interaction)
     }
 
     async fn write_reply_artifact(
@@ -475,6 +469,30 @@ impl LarkInteractionService {
             .await?;
         Ok(artifact_id)
     }
+}
+
+fn interaction_outcome(
+    interaction_id: InteractionId,
+    interaction: &codex_state::WorkflowInteractionRecord,
+) -> Result<HumanInteractionOutcome, LarkInteractionError> {
+    Ok(match interaction.state {
+        WorkflowInteractionState::Planned | WorkflowInteractionState::Waiting => {
+            HumanInteractionOutcome::Waiting { interaction_id }
+        }
+        WorkflowInteractionState::Resolved => HumanInteractionOutcome::Resolved {
+            interaction_id,
+            artifact_id: ArtifactId::parse(
+                interaction
+                    .response_artifact_id
+                    .as_deref()
+                    .ok_or(LarkInteractionError::MissingArtifact)?,
+            )?,
+        },
+        WorkflowInteractionState::TimedOut => HumanInteractionOutcome::TimedOut { interaction_id },
+        WorkflowInteractionState::Cancelled => {
+            HumanInteractionOutcome::Cancelled { interaction_id }
+        }
+    })
 }
 
 fn effect_interaction_id(response: &Option<Value>) -> Result<InteractionId, LarkInteractionError> {

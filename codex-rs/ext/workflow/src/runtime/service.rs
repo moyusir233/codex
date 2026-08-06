@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
+use codex_protocol::ThreadId;
 use codex_state::WorkflowStore;
 use serde_json::json;
 
@@ -103,6 +104,19 @@ impl WorkflowService {
         self.inner.prompt_review.as_ref().map(Arc::clone)
     }
 
+    /// Releases process-owned listeners for every thread retained by a terminal run.
+    pub async fn detach_run_observers(&self, run_id: WorkflowRunId) -> Result<(), NodeError> {
+        let host = self.inner.node_host.get()?;
+        for node in self.store().list_nodes(&run_id.to_string()).await? {
+            for thread in self.store().list_node_threads(&node.node_id).await? {
+                let thread_id = ThreadId::from_string(&thread.thread_id)
+                    .map_err(|error| NodeError::InvalidThreadId(error.to_string()))?;
+                host.detach_observer(thread_id).await?;
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn cancellation_signals(&self) -> CancellationSignals {
         self.inner.cancellation_signals.clone()
     }
@@ -147,6 +161,8 @@ impl WorkflowService {
 pub enum NodeError {
     #[error("workflow node was not found")]
     NotFound,
+    #[error("node key `{node_key}` already exists with a different resolved specification")]
+    SpecificationConflict { node_key: String },
     #[error("workflow node state is invalid: {0}")]
     InvalidState(String),
     #[error("workflow node thread id is invalid: {0}")]

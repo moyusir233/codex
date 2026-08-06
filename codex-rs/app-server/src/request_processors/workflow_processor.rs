@@ -43,6 +43,7 @@ use codex_state::WorkflowRunRecord;
 use codex_workflow_extension::ArtifactClassification;
 use codex_workflow_extension::ArtifactId;
 use codex_workflow_extension::CancellationReason;
+use codex_workflow_extension::DriveOutcome;
 use codex_workflow_extension::InteractionId;
 use codex_workflow_extension::WorkflowArtifactStore;
 use codex_workflow_extension::WorkflowArtifactWrite;
@@ -455,26 +456,42 @@ impl WorkflowRequestProcessor {
             Ok(_) | Err(codex_workflow_extension::WorkflowArtifactStoreError::AlreadyExists) => {}
             Err(error) => return Err(workflow_internal(error.to_string())),
         }
-        let accepted = if interaction.state == WorkflowInteractionState::Resolved {
-            if interaction.response_artifact_id.as_deref() != Some(&artifact_id.to_string()) {
-                return Err(workflow_conflict(
-                    "interaction_already_resolved",
-                    "interaction was resolved with another response",
-                ));
-            }
-            false
-        } else {
-            service
+        let artifact_id_string = artifact_id.to_string();
+        let (accepted, resumed) = if interaction.state == WorkflowInteractionState::Waiting {
+            let resolution = service
                 .store()
-                .update_interaction(
-                    &interaction.interaction_id,
-                    interaction.state,
-                    WorkflowInteractionState::Resolved,
-                    Some(&artifact_id.to_string()),
-                    now_ms(),
-                )
+                .resolve_interaction(&interaction.interaction_id, &artifact_id_string, now_ms())
                 .await
-                .map_err(workflow_store_error)?
+                .map_err(workflow_store_error)?;
+            if resolution.0 {
+                resolution
+            } else {
+                let current = service
+                    .store()
+                    .read_interaction(&interaction.interaction_id)
+                    .await
+                    .map_err(workflow_store_error)?
+                    .ok_or_else(|| workflow_internal("interaction disappeared during response"))?;
+                if current.state == WorkflowInteractionState::Resolved
+                    && current.response_artifact_id.as_deref() == Some(artifact_id_string.as_str())
+                {
+                    (false, false)
+                } else {
+                    return Err(workflow_conflict(
+                        "interaction_not_waiting",
+                        "interaction is no longer waiting for this response",
+                    ));
+                }
+            }
+        } else if interaction.state == WorkflowInteractionState::Resolved
+            && interaction.response_artifact_id.as_deref() == Some(artifact_id_string.as_str())
+        {
+            (false, false)
+        } else {
+            return Err(workflow_conflict(
+                "interaction_not_waiting",
+                "interaction is no longer waiting for this response",
+            ));
         };
         service
             .store()
@@ -489,18 +506,7 @@ impl WorkflowRequestProcessor {
             })
             .await
             .map_err(workflow_store_error)?;
-        let current = service
-            .store()
-            .read_run(&interaction.run_id)
-            .await
-            .map_err(workflow_store_error)?
-            .ok_or_else(|| workflow_invalid("run_not_found", "workflow run was not found"))?;
-        if current.status == codex_state::WorkflowRunStatus::Waiting {
-            let _ = service
-                .store()
-                .resume_run(&interaction.run_id, now_ms())
-                .await
-                .map_err(workflow_store_error)?;
+        if resumed {
             self.spawn_driver(run_id);
         }
         self.publish(&interaction.run_id);

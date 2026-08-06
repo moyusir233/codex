@@ -140,24 +140,36 @@ impl WorkflowSubscriptions {
                 .collect::<Vec<_>>()
         };
         for (connection_id, subscription) in subscribers {
-            let events = self
+            let target_sequence = self
                 .store
-                .events_after(run_id, subscription.delivered_sequence, EVENT_PAGE_SIZE)
-                .await?;
-            for event in &events {
-                let notification = self.notification_for_event(event).await?;
-                self.outgoing
-                    .send_server_notification_to_connections(&[connection_id], notification)
-                    .await;
-            }
-            if let Some(sequence) = events.last().map(|event| event.sequence)
-                && let Some(current) = self
+                .read_run(run_id)
+                .await?
+                .map(|run| run.next_sequence.saturating_sub(1))
+                .unwrap_or(subscription.delivered_sequence);
+            let mut cursor = subscription.delivered_sequence;
+            while cursor < target_sequence {
+                let events = self
+                    .store
+                    .events_after(run_id, cursor, EVENT_PAGE_SIZE)
+                    .await?;
+                if events.is_empty() {
+                    break;
+                }
+                for event in &events {
+                    let notification = self.notification_for_event(event).await?;
+                    self.outgoing
+                        .send_server_notification_to_connections(&[connection_id], notification)
+                        .await;
+                }
+                cursor = events.last().map_or(cursor, |event| event.sequence);
+                if let Some(current) = self
                     .subscriptions
                     .lock()
                     .await
                     .get_mut(&(connection_id, run_id.to_string()))
-            {
-                current.delivered_sequence = current.delivered_sequence.max(sequence);
+                {
+                    current.delivered_sequence = current.delivered_sequence.max(cursor);
+                }
             }
         }
         Ok(())
@@ -168,16 +180,32 @@ impl WorkflowSubscriptions {
         event: &WorkflowEventRecord,
     ) -> Result<ServerNotification, codex_state::WorkflowStoreError> {
         if event.kind.starts_with("node.") {
-            let node = match event.entity_id.as_deref() {
-                Some(node_id) => self.store.read_node(node_id).await?,
-                None => None,
+            let (node_id, node) = if event.kind.starts_with("node.attempt_") {
+                let attempt = match event.entity_id.as_deref() {
+                    Some(attempt_id) => self.store.read_node_attempt(attempt_id).await?,
+                    None => None,
+                };
+                let node_id = attempt.as_ref().map(|attempt| attempt.node_id.clone());
+                let node = match node_id.as_deref() {
+                    Some(node_id) => self.store.read_node(node_id).await?,
+                    None => None,
+                };
+                (node_id.unwrap_or_default(), node)
+            } else {
+                let node_id = event.entity_id.clone().unwrap_or_default();
+                let node = if node_id.is_empty() {
+                    None
+                } else {
+                    self.store.read_node(&node_id).await?
+                };
+                (node_id, node)
             };
             return Ok(ServerNotification::WorkflowNodeUpdated(
                 WorkflowNodeUpdatedNotification {
                     run_id: event.run_id.clone(),
                     sequence: event.sequence,
                     created_at_ms: event.created_at_ms,
-                    node_id: event.entity_id.clone().unwrap_or_default(),
+                    node_id,
                     thread_id: node.as_ref().and_then(|node| node.thread_id.clone()),
                     status: node.map(|node| node_status(node.status)),
                     metadata: event.metadata.clone(),
@@ -302,6 +330,8 @@ mod tests {
     use super::*;
     use codex_app_server_transport::OutgoingMessage;
     use codex_state::StateRuntime;
+    use codex_state::WorkflowInteractionPlan;
+    use codex_state::WorkflowInteractionState;
     use codex_state::WorkflowRunCreate;
     use serde_json::json;
     use tempfile::tempdir;
@@ -425,6 +455,95 @@ mod tests {
         assert_eq!(notification.status, WorkflowRunStatus::Pending);
         assert!(rx.try_recv().is_err());
 
+        runtime.close().await;
+    }
+
+    #[tokio::test]
+    async fn workflow_publication_drains_more_than_one_event_page() {
+        let home = tempdir().expect("create temporary codex home");
+        let runtime = StateRuntime::init(home.path().to_path_buf(), "test-provider".to_string())
+            .await
+            .expect("initialize state runtime");
+        let store = runtime.workflows().clone();
+        store
+            .create_run(WorkflowRunCreate {
+                run_id: "run-paged-publication".to_string(),
+                definition_name: "test-workflow".to_string(),
+                definition_version: "1.0.0".to_string(),
+                state_schema_version: 1,
+                state: json!({}),
+                arguments: json!({}),
+                non_interactive: false,
+                detached: false,
+                concurrency: None,
+                created_at_ms: 100,
+            })
+            .await
+            .expect("create workflow run");
+        store
+            .plan_interaction(WorkflowInteractionPlan {
+                interaction_id: "interaction-page".to_string(),
+                run_id: "run-paged-publication".to_string(),
+                dedupe_key: "page".to_string(),
+                kind: "test".to_string(),
+                request: json!({}),
+                deadline_ms: None,
+                created_at_ms: 101,
+            })
+            .await
+            .expect("plan interaction");
+        let (tx, mut rx) = mpsc::channel(1_100);
+        let subscriptions = WorkflowSubscriptions::new(
+            store.clone(),
+            Arc::new(OutgoingMessageSender::new(
+                tx,
+                codex_analytics::AnalyticsEventsClient::disabled(),
+            )),
+        );
+        subscriptions
+            .subscribe(
+                ConnectionId(8),
+                "run-paged-publication",
+                2,
+                NodeThreadSubscription::ReferencesOnly,
+            )
+            .await
+            .expect("subscribe at durable tail");
+        let mut state = WorkflowInteractionState::Planned;
+        for index in 0..1_001 {
+            let next = if state == WorkflowInteractionState::Planned {
+                WorkflowInteractionState::Waiting
+            } else {
+                WorkflowInteractionState::Planned
+            };
+            assert!(
+                store
+                    .update_interaction("interaction-page", state, next, None, 102 + index)
+                    .await
+                    .expect("append interaction event")
+            );
+            state = next;
+        }
+        subscriptions
+            .publish_run("run-paged-publication")
+            .await
+            .expect("publish every page");
+        let mut sequences = Vec::new();
+        while let Ok(envelope) = rx.try_recv() {
+            if let OutgoingEnvelope::ToConnection {
+                message:
+                    OutgoingMessage::AppServerNotification(ServerNotification::WorkflowRunUpdated(
+                        notification,
+                    )),
+                ..
+            } = envelope
+            {
+                sequences.push(notification.sequence);
+            }
+        }
+        assert_eq!(sequences.len(), 1_001);
+        assert_eq!(sequences.first(), Some(&3));
+        assert_eq!(sequences.last(), Some(&1_003));
         runtime.close().await;
     }
 }

@@ -48,6 +48,7 @@ pub struct TestHost {
     pub materializations: AtomicUsize,
     pub unique_queues: AtomicUsize,
     pub cancels: AtomicUsize,
+    pub detaches: AtomicUsize,
     pub deletes: AtomicUsize,
 }
 
@@ -63,6 +64,7 @@ impl Default for TestHost {
             materializations: AtomicUsize::new(0),
             unique_queues: AtomicUsize::new(0),
             cancels: AtomicUsize::new(0),
+            detaches: AtomicUsize::new(0),
             deletes: AtomicUsize::new(0),
         }
     }
@@ -226,7 +228,10 @@ impl WorkflowNodeHost for TestHost {
     }
 
     fn detach_observer(&self, _thread_id: ThreadId) -> NodeHostFuture<'_, ()> {
-        Box::pin(async { Ok(()) })
+        Box::pin(async move {
+            self.detaches.fetch_add(1, Ordering::AcqRel);
+            Ok(())
+        })
     }
 
     fn archive(&self, _thread_id: ThreadId, _archived: bool) -> NodeHostFuture<'_, ()> {
