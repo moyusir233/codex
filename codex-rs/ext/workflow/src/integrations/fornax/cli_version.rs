@@ -45,6 +45,12 @@ pub struct FornaxCliCapabilities {
     pub trace_read: bool,
     /// Trace writes are not present in `fornax-cli v0.0.51`.
     pub trace_write: bool,
+    /// Dataset/eval-set/evaluator/experiment operations are reviewed for this profile.
+    pub evaluation: bool,
+    /// Synthesis reads are reviewed; creation still requires explicit live authorization.
+    pub synthesis: bool,
+    /// Model and user reads are reviewed for this profile.
+    pub model_and_user_read: bool,
 }
 
 impl FornaxCliCapabilities {
@@ -56,6 +62,9 @@ impl FornaxCliCapabilities {
             skill_read_and_stage: true,
             trace_read: true,
             trace_write: false,
+            evaluation: true,
+            synthesis: true,
+            model_and_user_read: true,
         }
     }
 }

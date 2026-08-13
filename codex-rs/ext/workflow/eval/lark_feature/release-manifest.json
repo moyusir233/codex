@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "workflow": "lark-rust-sdk-feature-development@1.0.0",
+  "created_at": "2026-08-06T16:00:55+08:00",
+  "updated_at": "2026-08-06T19:34:55+08:00",
+  "source": {
+    "repository": "codex",
+    "base_commit": "d1c082e008aa13486672171c2286ca9559b44f47",
+    "state": "reviewed_uncommitted_working_tree",
+    "implementation_files": {
+      "src/workflows/lark_feature/args.rs": "315b3aa398dba159762efef16ea45f825f7e440fec6cacf3c70938b07a387939",
+      "src/workflows/lark_feature/capability.rs": "83d36f75cabf530148440044c1ab655bd53e9915a2a9b6e03952abdd64afcb72",
+      "src/workflows/lark_feature/contracts.rs": "ef878e632da397b0ea6abb49634e51fc7ec506d7910c697cd8cdce15d4e77936",
+      "src/workflows/lark_feature/definition.rs": "d4c4ef487176e3c72554fe1fb21c1255e6a60eb3fe42de0866efd3b8c37eb7fe",
+      "src/workflows/lark_feature/mod.rs": "619a94ca007aeeb5df0dfc62f56ee4fe7fc6a7b075f36b9ae52b4ae8fb5c4580",
+      "src/workflows/lark_feature/prompts.rs": "af597478aa465176523eb861ad3aff1a28647846a335e78b506a631315927cbf",
+      "src/workflows/lark_feature/state.rs": "210ebaffe1616366ae5418dab9de136280c72f38ba2345be1cf6eeaddb5b823c",
+      "src/workflows/lark_feature/validation.rs": "bf2e0f1f22acc926e8241221b36339b3ea19368afee3fe6655e4e6ac6a51ea93",
+      "src/integrations/lark/chats.rs": "804472bd8211bec75130543e3d68ecdc3be5478b13c8d4574d015ad15ec9acb6",
+      "src/integrations/lark/compatibility.rs": "88c49f6e4b80839ee762765b60bfbcd5a06c416b07307ccffc0015c864350a49",
+      "src/integrations/lark/config.rs": "b52e6cf61a540b819aa900670408cbf2ce16419fc7da6be4076cedb1033b01cc",
+      "src/integrations/lark/document_search.rs": "7713a173ded5accedf4ca148c03bbbc9acd6e9c48bd518202f523a23f88437cb",
+      "src/integrations/lark/documents.rs": "82bd62f20f12f425807b28af5b59943d5708bf4d9b5c0500db3adc4edcc3c3eb",
+      "src/integrations/lark/error.rs": "b7e2d5933753202cfc02971b642f1eb1f38ebb0d26585fcf66022fa3aff8829a",
+      "src/integrations/lark/events.rs": "d4d9e4acfd0ce3724dc778ce19c9fdc151c3be8a66448babd2be6dd75a384ef3",
+      "src/integrations/lark/identity.rs": "932974f10a67f769eb8c443414a49a3593bd84a040907d44a21bba70678e2587",
+      "src/integrations/lark/members.rs": "d0423cb5e660a43587243fc9cbb1c30fd8b919e8a8841cee8a497bf1f94e4e68",
+      "src/integrations/lark/messages.rs": "005d7539d9cf33dd3bd3be691e35f9143556a4d0acefb34b8dacae4bac1f4764",
+      "src/integrations/lark/mod.rs": "bdcfe5a3c5b47ab26d726a06ab2aef0efbaad4bb7f0bef9be1da230c180a75da",
+      "src/integrations/lark/types.rs": "9595509970ae9e948e2e50b04318eca540edcb50248adc88aeba2607bbdfc4cb",
+      "src/integrations/lark/user_search.rs": "1d20f2d2d3c43092556181fcc0f56ad1b2537b230ccfb2ad826af2709b7bb0c0",
+      "src/runtime/document_update.rs": "547c49d0a65eb3fbb8d48cf30a4ed1c641466c270077f2b08c690ec85db77822"
+    }
+  },
+  "compatibility": {
+    "lark_cli": "1.0.0",
+    "fornax_cli": "0.0.51",
+    "fornax_bridge_protocol": 2,
+    "fornax_bridge_package": "0.2.0",
+    "fornax_sdk": "1.0.46",
+    "lark_document_consistency_model": "single_writer_revision_aware",
+    "lark_document_capability": "lark.documents.single-writer-revision-aware.v1"
+  },
+  "prompts": {
+    "release": "bundled-1.0.0",
+    "remote_release_ids": null,
+    "files": {
+      "prompts/lark_feature/01-requirements-clarification.md": "4974c77a074c1175081a5543b45857c3b00e7d3d4800b3918c9f9e35055ebf55",
+      "prompts/lark_feature/02-technical-design.md": "734884315c35d60b49c6e6dc3e582715076cca8fda1e7ea80d9d48b8f9ed3465",
+      "prompts/lark_feature/03-coding-exec-plan-design.md": "1a405d31012f3831c902de81abe6d6481cc77ce7877d2ff68e00e319345759c6",
+      "prompts/lark_feature/04-exec-plan-execution.md": "7ab1bb1b3cf825a777a3690c18f5e5b300f8a26d7eca92e0068d6fb225aa118b"
+    }
+  },
+  "schemas": {
+    "version": "1.0.0",
+    "files": {
+      "schemas/lark_feature/exec_plan_result.json": "5389f4a596ea87961f109097d6a41a00a6b2924089e60b32f2f5ca2295e6658b",
+      "schemas/lark_feature/execution_result.json": "309f6f67b3ce91a4436fbba728c68d4c65791139213d520dbf87aa9c791ee3dc",
+      "schemas/lark_feature/requirements_result.json": "afffdd108694bfd13efd3d6d444e6b63f4f633a51627098efd961ed35cf375fc",
+      "schemas/lark_feature/stage_handoff.json": "3220d8cd125caaf884a31f3cfffd0b56e344f5d3427bc0f70b054ae4709eb84b",
+      "schemas/lark_feature/technical_design_result.json": "4854d48a90557ebc00ae50c30bbbd446882b9305b5237dcf0070febca2b85fd8",
+      "schemas/lark_feature/workflow_output.json": "626a2ba7fc2f6ad20221b32eb9a6f806c8c9a4c757a3cf4edf4732a4012253ed"
+    }
+  },
+  "evaluation": {
+    "dataset_version": "1.0.0",
+    "eval_set_version": "1.0.0",
+    "deterministic_evaluator_version": "1.0.0",
+    "human_evaluator_version": "1.0.0",
+    "remote_dataset_id": null,
+    "remote_eval_set_id": null,
+    "remote_evaluator_ids": null,
+    "remote_experiment_id": null,
+    "remote_reference_ids": null,
+    "remote_status": "not_run_not_authorized",
+    "files": {
+      "eval/lark_feature/dataset-fields.json": "e397e0343150d7e95d6a132b3688006c9b653b247cdaf04169809684c042d771",
+      "eval/lark_feature/deterministic-rubric.json": "f5d1263ab8fae81d2f50eaaf3c70dba8099949445f1d245cac3ab9e72cbbb375",
+      "eval/lark_feature/eval-set-schema.json": "4f8c0c61165c582d1e61b161b88960d26f5f63786c9b447c637bf718cdd2c0e0",
+      "eval/lark_feature/human-rubric.json": "02fdc28ead024fbfaeaa17e2fac5b15f2dfbc4902a384af630d71a5ddd401d96",
+      "eval/lark_feature/items.json": "d48539ee70452f5ebcf962cbcb333f3344322ec32e64e8eb6f278dc95baa284d",
+      "eval/lark_feature/release-thresholds.json": "1a569c6c9c926935ac6d9a699391c0a090a7709189d7849e5b8da8c5eca7b818",
+      "tests/fixtures/lark_feature/scenarios/scenario-matrix.json": "c33e5b7df082a00b7f056936ab5e9d9fd71cdbd144f46055734acc9090a7fc50",
+      "tests/fixtures/lark_feature/scenarios/crash-boundaries.json": "90e99aae7b8617121521d52d0ffa149529ee07d353235d23aa40676d115da6e6",
+      "tests/fixtures/lark_feature/expected/evaluation-bundle.json": "cbf18aa4fc9d32792098f1f222ee2de6fd34520a28b558e63fe58a1026878887"
+    },
+    "results": {
+      "total_cases": 16,
+      "normal_holdout_success_percent": 100,
+      "adverse_safe_disposition_percent": 100,
+      "contract_valid_percent": 100,
+      "approval_gate_enforcement_percent": 100,
+      "trace_required_fields_percent": 100,
+      "correct_back_edges_percent": 100,
+      "minimum_dimension_score": 4.4,
+      "minimum_stage_mean": 4.5,
+      "critical_hallucinations": 0,
+      "critical_leaks": 0,
+      "false_completions": 0,
+      "hard_veto_failures": 0
+    }
+  },
+  "validation": {
+    "workflow_extension": "80_passed_0_failed",
+    "lark_contract": "9_passed_0_failed",
+    "lark_feature_e2e": "8_passed_0_failed",
+    "lark_feature_recovery": "2_passed_0_failed",
+    "lark_feature_security": "3_passed_0_failed",
+    "lark_feature_trace_completeness": "2_passed_0_failed",
+    "app_server_workflow_example": "1_passed_0_failed",
+    "cli_workflow_binary": "12_passed_0_failed",
+    "scoped_clippy": "passed_no_warnings",
+    "fmt_check": "passed",
+    "external_mutations": false
+  },
+  "release_decision": {
+    "local_implementation": "pass",
+    "live_workflow": "disabled",
+    "canary": "not_run_not_authorized",
+    "blocking_reasons": [
+      "tenant, requester allowlist, retention and cleanup ownership are unresolved",
+      "remote Fornax evaluation resources and target are not authorized",
+      "disposable nonproduction canary authorization is absent"
+    ]
+  }
+}

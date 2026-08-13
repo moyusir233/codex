@@ -244,6 +244,11 @@ uuid_id!(
     "artifact ID",
     "UUIDv7 identity of one immutable workflow artifact."
 );
+uuid_id!(
+    ApprovalId,
+    "approval ID",
+    "UUIDv7 identity of one revision-bound approval request."
+);
 
 /// Monotonic, one-based sequence number for durable workflow events.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]

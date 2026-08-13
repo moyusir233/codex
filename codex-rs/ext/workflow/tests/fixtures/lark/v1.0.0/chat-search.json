@@ -1,1 +1,16 @@
-{"data":{"chats":[{"chat_id":"oc_demo_01","name":"workflow-demo","description":"synthetic fixture","owner_id":"ou_owner_01","external":false,"chat_status":"normal"}]}}
+{
+  "data": {
+    "chats": [
+      {
+        "chat_id": "oc_unrelated_01",
+        "name": "unrelated-chat",
+        "description": "not the ownership marker",
+        "owner_id": "ou_other_01",
+        "external": false,
+        "chat_status": "normal"
+      }
+    ],
+    "has_more": true,
+    "page_token": "chats-2"
+  }
+}

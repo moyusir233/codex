@@ -115,6 +115,7 @@ mod skills_watcher;
 mod thread_state;
 mod thread_status;
 mod transport;
+mod workflow_goal_adapter;
 mod workflow_subscriptions;
 
 pub use crate::error_code::INPUT_TOO_LARGE_ERROR_CODE;

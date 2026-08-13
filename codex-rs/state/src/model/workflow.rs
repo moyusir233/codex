@@ -208,6 +208,20 @@ pub struct WorkflowFornaxTraceRecord {
     pub error_code: Option<String>,
 }
 
+/// Append-only evidence that one locally journaled mutation was found remotely.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkflowFornaxDeliveryProofRecord {
+    pub run_id: String,
+    pub effect_key: String,
+    pub operation_id: String,
+    pub request_hash: String,
+    pub remote_trace_id: String,
+    pub remote_span_id: String,
+    pub proof_kind: String,
+    pub proof_digest: String,
+    pub reconciled_at_ms: i64,
+}
+
 /// Durable workflow node lifecycle state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WorkflowNodeStatus {
@@ -488,5 +502,33 @@ pub struct WorkflowArtifactRecord {
     pub media_type: String,
     pub byte_count: u64,
     pub sha256: String,
+    pub created_at_ms: i64,
+}
+
+/// Durable, revision-bound approval request.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WorkflowApprovalRecord {
+    pub approval_id: String,
+    pub run_id: String,
+    pub effect_key: String,
+    pub request_hash: String,
+    pub gate: String,
+    pub subject: Value,
+    pub allowed_approvers: Vec<String>,
+    pub quorum: u32,
+    pub deadline_ms: i64,
+    pub created_at_ms: i64,
+}
+
+/// One immutable decision in an approval's append-only history.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkflowApprovalDecisionRecord {
+    pub decision_id: String,
+    pub approval_id: String,
+    pub sender_id: String,
+    pub message_id: Option<String>,
+    pub response_artifact_id: Option<String>,
+    pub decision: String,
+    pub reason: Option<String>,
     pub created_at_ms: i64,
 }

@@ -1,5 +1,22 @@
 # Fornax Python SDK contract status
 
+## 2026-08-06 implementation reconfirmation
+
+The current Codex source is
+`d1c082e008aa13486672171c2286ca9559b44f47`. The host reports
+`fornax-cli v0.0.51`; bridge protocol 1 and the exact
+`bytedance.fornax 1.0.46` pin remain the only supported write profile.
+Fixture-backed Rust contract tests passed 7/7 CLI cases and 4/4 bridge cases
+when selected by integration-test binary. No SDK import, credential lookup, or
+remote write was performed during reconfirmation.
+
+This profile still implements generic Root/Agent/Tool bridge operations only.
+Prompt, Model, and retriever mappings, delivery-state separation, complete
+field validation, and evaluation resource clients remain implementation work.
+Local durable admission must not be labeled remotely delivered. Live writes
+remain disabled until a disposable workspace proves export acknowledgement,
+timeouts, retry/reconciliation, and redaction behavior.
+
 On 2026-07-30 PRC, `uv 0.12.0` resolved and locked private distribution
 `bytedance.fornax 1.0.46` from `https://bytedpypi.byted.org/simple/` under
 CPython 3.10.15. `pyproject.toml` now pins that exact version and `uv.lock`

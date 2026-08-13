@@ -22,6 +22,8 @@ pub enum WorkflowStoreError {
     EffectConflict,
     #[error("workflow Fornax correlation was reused with different identifiers")]
     FornaxCorrelationConflict,
+    #[error("workflow Fornax delivery proof conflicts with durable correlation or evidence")]
+    FornaxDeliveryProofConflict,
     #[error("workflow interaction dedupe key was reused with a different request")]
     InteractionConflict,
     #[error("workflow Lark correlation was reused with different routing")]
@@ -38,6 +40,10 @@ pub enum WorkflowStoreError {
     InvalidDependencyPolicy,
     #[error("workflow artifact identifier or path already exists")]
     DuplicateArtifact,
+    #[error("workflow approval effect key was reused with a different request")]
+    ApprovalConflict,
+    #[error("workflow approval decision identity was reused with different evidence")]
+    ApprovalDecisionConflict,
     #[error(transparent)]
     Database(#[from] sqlx::Error),
     #[error(transparent)]

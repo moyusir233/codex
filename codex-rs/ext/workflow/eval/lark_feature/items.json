@@ -1,0 +1,7 @@
+{
+  "dataset_version": "1.0.0",
+  "items_path": "tests/fixtures/lark_feature/scenarios/scenario-matrix.json",
+  "item_count": 16,
+  "content_sha256_policy": "computed over canonical checked-in scenario matrix bytes",
+  "contains_production_data": false
+}

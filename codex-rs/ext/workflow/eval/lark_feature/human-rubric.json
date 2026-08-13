@@ -1,0 +1,12 @@
+{
+  "rubric_version": "1.0.0",
+  "scale": {"minimum": 1, "maximum": 5},
+  "minimum_dimension": 4.0,
+  "minimum_stage_mean": 4.3,
+  "dimensions": {
+    "requirements": ["ambiguity_discovery", "question_relevance", "conflict_handling", "acceptance_measurability"],
+    "technical_design": ["template_conformance", "requirements_traceability", "architecture", "failure_security_testing"],
+    "exec_plan_design": ["self_containment", "repository_orientation", "milestone_observability", "validation_recovery"],
+    "execution": ["plan_adherence", "correctness", "diagnosis_recovery", "evidence_quality"]
+  }
+}

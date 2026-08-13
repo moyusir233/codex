@@ -74,5 +74,6 @@ pub trait PromptReviewCapability: Send + Sync {
 pub fn default_registry() -> Result<WorkflowRegistry, crate::RegistryError> {
     let mut builder = WorkflowRegistryBuilder::new();
     builder.register(PromptReviewWorkflow)?;
+    builder.register(crate::workflows::lark_feature::LarkFeatureWorkflow)?;
     builder.build()
 }

@@ -2,7 +2,12 @@ import pytest
 from ids import operation
 
 from codex_fornax_trace_bridge.errors import BridgeError
-from codex_fornax_trace_bridge.models import FinishSpan, RecordSpan, StartSpan
+from codex_fornax_trace_bridge.models import (
+    FinishSpan,
+    RecordSpan,
+    StartSpan,
+    validate_semantic_record,
+)
 
 
 def test_start_span_accepts_exact_tagged_parents() -> None:
@@ -20,6 +25,20 @@ def test_start_span_accepts_exact_tagged_parents() -> None:
             }
         )
         assert request.parent.kind == parent["type"]
+
+
+def test_protocol_v1_rejects_protocol_v2_span_types() -> None:
+    for span_type in ("prompt", "model", "retriever"):
+        with pytest.raises(BridgeError, match="unsupported span type"):
+            StartSpan.parse(
+                {
+                    "operationId": operation(1),
+                    "name": "typed",
+                    "spanType": span_type,
+                    "parent": {"type": "newTrace"},
+                },
+                protocol_version=1,
+            )
 
 
 @pytest.mark.parametrize(
@@ -129,3 +148,28 @@ def test_record_span_rejects_large_values_and_unsafe_baggage() -> None:
 def test_finish_span_rejects_unknown_fields() -> None:
     with pytest.raises(BridgeError, match="unexpected"):
         FinishSpan.parse({"operationId": operation(1), "force": True})
+
+
+def test_protocol_v2_model_semantics_require_pinned_messages_spelling() -> None:
+    valid = RecordSpan.parse(
+        {
+            "operationId": operation(1),
+            "record": {
+                "type": "input",
+                "value": {
+                    "type": "plainText",
+                    "value": '{"messages":[{"role":"user","content":"safe"}]}',
+                    "classification": "nonSensitive",
+                    "policyGrant": True,
+                },
+            },
+        }
+    )
+    validate_semantic_record("model", valid)
+    invalid_record = dict(valid.value or {})
+    invalid_record["value"] = '{"messsages":[{"role":"user","content":"safe"}]}'
+    with pytest.raises(BridgeError, match="messages"):
+        validate_semantic_record(
+            "model",
+            RecordSpan(valid.operation_id, "input", None, invalid_record, None),
+        )

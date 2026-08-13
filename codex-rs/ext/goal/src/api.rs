@@ -106,6 +106,68 @@ impl GoalService {
             .map_err(|err| GoalServiceError::Internal(format!("failed to read thread goal: {err}")))
     }
 
+    /// Creates a new goal with the same unfinished-goal guard as the agent tool.
+    pub async fn create_thread_goal(
+        &self,
+        state_db: &codex_state::StateRuntime,
+        thread_id: ThreadId,
+        objective: &str,
+        token_budget: Option<i64>,
+    ) -> Result<GoalSetOutcome, GoalServiceError> {
+        let objective = objective.trim();
+        validate_thread_goal_objective(objective).map_err(GoalServiceError::InvalidRequest)?;
+        validate_goal_budget(token_budget).map_err(GoalServiceError::InvalidRequest)?;
+
+        let runtime = self.runtime_for_thread(thread_id);
+        let _goal_state_permit = match runtime.as_ref() {
+            Some(runtime) => Some(
+                runtime
+                    .goal_state_permit()
+                    .await
+                    .map_err(GoalServiceError::Internal)?,
+            ),
+            None => None,
+        };
+        if let Some(runtime) = runtime.as_ref()
+            && let Err(err) = runtime.prepare_external_goal_mutation().await
+        {
+            tracing::warn!("failed to prepare external goal creation: {err}");
+        }
+        let previous_goal = state_db
+            .thread_goals()
+            .get_thread_goal(thread_id)
+            .await
+            .map_err(|err| {
+                GoalServiceError::Internal(format!("failed to read thread goal: {err}"))
+            })?
+            .as_ref()
+            .map(PreviousGoalSnapshot::from);
+        let goal = state_db
+            .thread_goals()
+            .insert_thread_goal(
+                thread_id,
+                objective,
+                codex_state::ThreadGoalStatus::Active,
+                token_budget,
+            )
+            .await
+            .map_err(|err| {
+                GoalServiceError::Internal(format!("failed to create thread goal: {err}"))
+            })?
+            .ok_or_else(|| {
+                GoalServiceError::InvalidRequest(
+                    "cannot create a new goal because this thread has an unfinished goal; complete the existing goal first"
+                        .to_string(),
+                )
+            })?;
+        fill_empty_thread_preview_if_possible(state_db, thread_id, &goal).await;
+        Ok(GoalSetOutcome {
+            goal: protocol_goal_from_state(goal.clone()),
+            state_goal: goal,
+            previous_goal,
+        })
+    }
+
     pub async fn set_thread_goal(
         &self,
         state_db: &codex_state::StateRuntime,

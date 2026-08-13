@@ -119,7 +119,8 @@ impl WorkflowRequestProcessor {
                 service.registry(),
                 format!("app-server-{}", uuid::Uuid::now_v7()),
                 30_000,
-            );
+            )
+            .with_runtime_facets(service.as_ref().clone());
             if let Some(capability) = service.prompt_review_capability() {
                 driver = driver.with_prompt_review_capability(capability);
             }

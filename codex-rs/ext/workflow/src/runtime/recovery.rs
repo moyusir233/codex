@@ -105,7 +105,8 @@ impl WorkflowRecovery {
                         self.service.cancellation_signals(),
                         self.fornax.as_ref().map(Arc::clone),
                         self.lark.as_ref().map(Arc::clone),
-                    );
+                    )
+                    .with_runtime_facets(self.service.clone());
                     if let Some(capability) = self.prompt_review.as_ref().map(Arc::clone) {
                         driver = driver.with_prompt_review_capability(capability);
                     }

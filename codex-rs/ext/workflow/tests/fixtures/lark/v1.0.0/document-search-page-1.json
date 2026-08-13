@@ -1,0 +1,18 @@
+{
+  "data": {
+    "total": 2,
+    "has_more": true,
+    "page_token": "docs-2",
+    "results": [
+      {
+        "entity_type": "DOC",
+        "title_highlighted": "Codex prompt <h>review</h> fixture",
+        "result_meta": {
+          "doc_types": "DOCX",
+          "url": "https://example.lark/docx/doxcn_other_01",
+          "update_time": 1775000000
+        }
+      }
+    ]
+  }
+}

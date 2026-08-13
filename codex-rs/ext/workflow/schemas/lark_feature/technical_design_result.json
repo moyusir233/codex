@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "technical_design StageResultV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "stage_id",
+    "stage_attempt_id",
+    "requirement_generation",
+    "disposition",
+    "output",
+    "produced_artifacts",
+    "questions",
+    "risks",
+    "decisions",
+    "validations",
+    "trace_context",
+    "requested_transition"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "stage_id": {
+      "const": "technical_design"
+    },
+    "stage_attempt_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "requirement_generation": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "disposition": {
+      "enum": [
+        "ready_for_gate",
+        "needs_input",
+        "return_to_prior_stage",
+        "blocked"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "approval_subject": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": [
+            "artifact_id",
+            "sha256",
+            "document_id",
+            "document_revision"
+          ],
+          "properties": {
+            "artifact_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "document_id": {
+              "type": "string"
+            },
+            "document_revision": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "produced_artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "logical_name",
+          "artifact_id",
+          "sha256",
+          "classification"
+        ],
+        "properties": {
+          "logical_name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "artifact_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "classification": {
+            "enum": [
+              "public",
+              "internal",
+              "sensitive"
+            ]
+          }
+        }
+      }
+    },
+    "questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "question_id",
+          "text",
+          "required_for_advance",
+          "asked_to"
+        ],
+        "properties": {
+          "question_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1
+          },
+          "required_for_advance": {
+            "type": "boolean"
+          },
+          "asked_to": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "risks": {
+      "type": "array"
+    },
+    "decisions": {
+      "type": "array"
+    },
+    "validations": {
+      "type": "array"
+    },
+    "trace_context": {
+      "$ref": "#/$defs/traceContext"
+    },
+    "requested_transition": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "enum": [
+            "request_design_gate",
+            "revise_design",
+            "return_to_requirements",
+            "needs_operator"
+          ]
+        }
+      }
+    },
+    "error": {
+      "type": [
+        "object",
+        "null"
+      ]
+    }
+  },
+  "allOf": [{
+    "if": {"properties": {"disposition": {"const": "ready_for_gate"}}},
+    "then": {"properties": {"output": {"required": ["approval_subject"]}}}
+  }],
+  "$defs": {
+    "traceContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trace_id", "span_id", "trace_context_id", "w3c"],
+      "properties": {
+        "trace_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+        "span_id": {"type": "string", "pattern": "^[0-9a-f]{16}$"},
+        "trace_context_id": {"type": "string", "format": "uuid"},
+        "w3c": {"type": "string", "pattern": "^00-[0-9a-f]{32}-[0-9a-f]{16}-01$"}
+      }
+    }
+  }
+}

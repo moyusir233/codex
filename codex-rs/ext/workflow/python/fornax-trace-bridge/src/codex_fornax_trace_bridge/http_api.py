@@ -1,4 +1,4 @@
-"""Authenticated loopback-only HTTP protocol v1."""
+"""Authenticated loopback-only HTTP protocol."""
 
 import hmac
 import ipaddress
@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import unquote, urlparse
 
-from . import PROTOCOL_VERSION, __version__
+from . import SUPPORTED_PROTOCOL_VERSIONS, __version__
 from .errors import BridgeError, invalid
 from .service import BridgeService
 
@@ -43,7 +43,7 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         try:
-            self._authorize()
+            protocol_version = self._authorize()
             path = urlparse(self.path).path
             if path == "/v1/health":
                 health = self.server.service.health()
@@ -51,7 +51,7 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                     HTTPStatus.OK,
                     {
                         "bridgeVersion": __version__,
-                        "protocolVersion": int(PROTOCOL_VERSION),
+                        "protocolVersion": protocol_version,
                         **health,
                     },
                 )
@@ -78,12 +78,15 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         try:
-            self._authorize()
+            protocol_version = self._authorize()
             path = urlparse(self.path).path
             body = self._read_json()
             if path == "/v1/spans":
                 self._authorize_mutation(body)
-                self._write_json(HTTPStatus.OK, self.server.service.start_span(body))
+                self._write_json(
+                    HTTPStatus.OK,
+                    self.server.service.start_span(body, protocol_version=protocol_version),
+                )
                 return
             prefix = "/v1/spans/"
             if path.startswith(prefix):
@@ -92,11 +95,15 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
                     self._authorize_mutation(body)
                     span_handle_id = unquote(suffix[0])
                     if suffix[1] == "records":
-                        result = self.server.service.record_span(span_handle_id, body)
+                        result = self.server.service.record_span(
+                            span_handle_id, body, protocol_version=protocol_version
+                        )
                         self._write_json(HTTPStatus.OK, result)
                         return
                     if suffix[1] == "finish":
-                        result = self.server.service.finish_span(span_handle_id, body)
+                        result = self.server.service.finish_span(
+                            span_handle_id, body, protocol_version=protocol_version
+                        )
                         self._write_json(HTTPStatus.OK, result)
                         return
             if path == "/v1/shutdown":
@@ -120,17 +127,18 @@ class BridgeRequestHandler(BaseHTTPRequestHandler):
     def log_message(self, _format: str, *_args: object) -> None:
         """Suppress stdlib request logs because they may contain identifiers."""
 
-    def _authorize(self) -> None:
+    def _authorize(self) -> int:
         address = ipaddress.ip_address(self.client_address[0])
         if not address.is_loopback:
             raise BridgeError("forbidden", "bridge accepts loopback clients only", 403)
         protocol = self.headers.get("X-Codex-Fornax-Protocol")
-        if protocol != PROTOCOL_VERSION:
+        if protocol not in SUPPORTED_PROTOCOL_VERSIONS:
             raise BridgeError("protocol_mismatch", "unsupported bridge protocol", 426)
         authorization = self.headers.get("Authorization", "")
         expected = f"Bearer {self.server.token}"
         if not hmac.compare_digest(authorization, expected):
             raise BridgeError("localAuthentication", "invalid bridge credential", 401)
+        return int(protocol)
 
     def _authorize_mutation(self, body: dict[str, Any]) -> None:
         operation_id = body.get("operationId")

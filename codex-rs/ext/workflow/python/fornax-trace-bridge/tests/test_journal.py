@@ -48,6 +48,8 @@ def test_restart_orphans_live_handles_from_old_instance(tmp_path: Path) -> None:
         },
         "creating-op",
         {"x-flow-traceparent": "opaque"},
+        "root",
+        1,
     )
     assert first.live_span_count() == 1
     first.close()

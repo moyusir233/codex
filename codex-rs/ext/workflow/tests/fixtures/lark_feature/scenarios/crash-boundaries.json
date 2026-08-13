@@ -1,0 +1,21 @@
+[
+  {"boundary":"preflight.before_mutation","journal":"run","recovery":"repeat_read_only_preflight","max_logical_resources":0},
+  {"boundary":"group.dispatched","journal":"effect+lark_correlation","recovery":"reconcile_marker_before_retry","max_logical_resources":1},
+  {"boundary":"group.applied","journal":"effect+lark_correlation","recovery":"reuse_group","max_logical_resources":1},
+  {"boundary":"membership.partial","journal":"effect+membership_snapshot","recovery":"reconcile_exact_missing_members","max_logical_resources":1},
+  {"boundary":"document.create.dispatched","journal":"effect+owner_marker","recovery":"search_marker_and_digest","max_logical_resources":1},
+  {"boundary":"document.update.drift_or_timeout","journal":"effect+expected_revision+expected_digest+desired_digest","recovery":"refetch_before_idempotent_retry_or_operator","max_logical_resources":1},
+  {"boundary":"node.ensure.applied","journal":"workflow_nodes","recovery":"reuse_node_thread","max_logical_resources":1},
+  {"boundary":"turn.prepared","journal":"node_attempts+prepared_boundary","recovery":"inspect_history_before_queue","max_logical_resources":1},
+  {"boundary":"turn.queued","journal":"node_attempts+prepared_boundary","recovery":"await_same_turn","max_logical_resources":1},
+  {"boundary":"turn.terminal","journal":"node_attempts+history","recovery":"persist_terminal_once","max_logical_resources":1},
+  {"boundary":"handoff.written","journal":"artifacts","recovery":"reuse_generation_attempt_artifact","max_logical_resources":1},
+  {"boundary":"approval.request.dispatched","journal":"approval+interaction+lark_correlation","recovery":"reuse_subject_and_interaction","max_logical_resources":1},
+  {"boundary":"approval.response.resolved","journal":"interaction+decision","recovery":"derive_append_only_outcome","max_logical_resources":1},
+  {"boundary":"goal.dispatched","journal":"effect+thread_goal","recovery":"reread_run_bound_goal","max_logical_resources":1},
+  {"boundary":"goal.applied","journal":"effect+thread_goal","recovery":"reuse_goal","max_logical_resources":1},
+  {"boundary":"trace.start.dispatched","journal":"effect+fornax_trace","recovery":"status_check_or_backlog","max_logical_resources":1},
+  {"boundary":"trace.record.dispatched","journal":"effect+fornax_trace","recovery":"status_check_or_backlog","max_logical_resources":1},
+  {"boundary":"trace.finish.dispatched","journal":"effect+fornax_trace","recovery":"status_check_or_backlog","max_logical_resources":1},
+  {"boundary":"delivery.before_commit","journal":"artifacts+approvals+goal+run","recovery":"revalidate_all_evidence","max_logical_resources":1}
+]

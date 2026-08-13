@@ -151,7 +151,24 @@ fn workflow_list_uses_the_embedded_registry() -> Result<()> {
     cmd.args(["workflow", "--list"])
         .assert()
         .success()
-        .stdout(contains("prompt-review 1.0.0 (default)"));
+        .stdout(contains("prompt-review 1.0.0 (default)"))
+        .stdout(contains(
+            "lark-rust-sdk-feature-development 1.0.0 (default)",
+        ));
+    Ok(())
+}
+
+#[test]
+fn workflow_lark_feature_help_exposes_typed_launch_contract() -> Result<()> {
+    let codex_home = TempDir::new()?;
+    let mut cmd = codex_command(codex_home.path())?;
+    cmd.args(["workflow", "lark-rust-sdk-feature-development", "--help"])
+        .assert()
+        .success()
+        .stdout(contains("--requirement-id"))
+        .stdout(contains("--worktree-path"))
+        .stdout(contains("--goal-objective"))
+        .stdout(contains("--approval-quorum"));
     Ok(())
 }
 
@@ -169,13 +186,24 @@ fn workflow_json_list_is_clean_ndjson() -> Result<()> {
         .clone();
     let stdout = String::from_utf8(output)?;
     let lines = stdout.lines().collect::<Vec<_>>();
-    assert_eq!(lines.len(), 2);
-    let definition: Value = serde_json::from_str(lines[0])?;
-    assert_eq!(definition["type"], "definition");
-    assert_eq!(definition["definition"]["name"], "prompt-review");
-    let result: Value = serde_json::from_str(lines[1])?;
+    assert_eq!(lines.len(), 3);
+    let definitions = lines[..2]
+        .iter()
+        .map(|line| serde_json::from_str::<Value>(line))
+        .collect::<Result<Vec<_>, _>>()?;
+    assert!(
+        definitions
+            .iter()
+            .all(|value| value["type"] == "definition")
+    );
+    assert!(
+        definitions
+            .iter()
+            .any(|value| { value["definition"]["name"] == "lark-rust-sdk-feature-development" })
+    );
+    let result: Value = serde_json::from_str(lines[2])?;
     assert_eq!(result["type"], "result");
-    assert_eq!(result["definitionCount"], 1);
+    assert_eq!(result["definitionCount"], 2);
     Ok(())
 }
 
@@ -347,6 +375,18 @@ fn workflow_example_embedded_launch_fails_closed_without_live_capabilities() -> 
     .assert()
     .code(1)
     .stderr(contains("requires unavailable capabilities"));
+    Ok(())
+}
+
+#[test]
+fn workflow_lark_feature_launch_fails_closed_without_live_capabilities() -> Result<()> {
+    let codex_home = TempDir::new()?;
+    let mut cmd = codex_command(codex_home.path())?;
+    cmd.args(["workflow", "lark-rust-sdk-feature-development"])
+        .assert()
+        .code(1)
+        .stderr(contains("requires unavailable capabilities"))
+        .stderr(contains("lark.documents.single-writer-revision-aware.v1"));
     Ok(())
 }
 

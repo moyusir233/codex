@@ -41,7 +41,11 @@ impl LarkCliVersion {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LarkCliCapabilities {
     pub documents: bool,
+    pub document_revisions: bool,
+    pub document_revision_aware_updates: bool,
     pub chats: bool,
+    pub identity_search: bool,
+    pub chat_members: bool,
     pub idempotent_messages: bool,
     pub raw_events: bool,
 }
@@ -50,7 +54,11 @@ impl LarkCliCapabilities {
     pub(super) fn verified() -> Self {
         Self {
             documents: true,
+            document_revisions: true,
+            document_revision_aware_updates: true,
             chats: true,
+            identity_search: true,
+            chat_members: true,
             idempotent_messages: true,
             raw_events: true,
         }
@@ -94,8 +102,24 @@ pub enum DocumentParent {
 pub struct DocumentRecord {
     pub doc_id: String,
     pub doc_url: String,
+    pub revision_id: String,
     #[serde(default)]
     pub message: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct DocumentSnapshot {
+    pub doc_id: String,
+    pub doc_url: String,
+    pub revision_id: String,
+    pub markdown: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DocumentMatch {
+    Missing,
+    Found(DocumentSnapshot),
+    Ambiguous(Vec<DocumentSnapshot>),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -158,6 +182,7 @@ pub struct ChatSearchRequest {
     pub identity: LarkIdentity,
     pub query: Option<String>,
     pub member_ids: Vec<OpenId>,
+    pub managed_only: bool,
     pub page_size: u8,
     pub page_token: Option<String>,
 }
@@ -190,6 +215,58 @@ pub struct ChatCreateRequest {
     pub current_user: Option<OpenId>,
     pub public: bool,
     pub sensitivity: ContentSensitivity,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UserSearchRequest {
+    pub identity: LarkIdentity,
+    pub query: String,
+    pub page_size: u8,
+    pub page_token: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct UserRecord {
+    pub open_id: OpenId,
+    pub name: String,
+    pub email: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UserMatch {
+    Missing,
+    Found(UserRecord),
+    Ambiguous(Vec<UserRecord>),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct ChatMember {
+    pub member_id: OpenId,
+    pub member_id_type: String,
+    pub name: String,
+    pub tenant_key: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChatMembers {
+    pub members: Vec<ChatMember>,
+    pub member_total: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct ChatMemberAddResult {
+    #[serde(default)]
+    pub invalid_id_list: Vec<String>,
+    #[serde(default)]
+    pub not_existed_id_list: Vec<String>,
+    #[serde(default)]
+    pub pending_approval_id_list: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ChatMemberMatch {
+    Complete,
+    Incomplete(Vec<OpenId>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

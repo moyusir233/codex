@@ -41,6 +41,7 @@ pub struct WorkflowDriver {
     fornax: Option<Arc<FornaxWorkflowClient>>,
     lark: Option<Arc<super::LarkInteractionService>>,
     prompt_review: Option<Arc<dyn crate::PromptReviewCapability>>,
+    service: Option<super::WorkflowService>,
 }
 
 impl WorkflowDriver {
@@ -59,6 +60,7 @@ impl WorkflowDriver {
             fornax: None,
             lark: None,
             prompt_review: None,
+            service: None,
         }
     }
 
@@ -80,6 +82,7 @@ impl WorkflowDriver {
             fornax,
             lark,
             prompt_review: None,
+            service: None,
         }
     }
 
@@ -98,6 +101,12 @@ impl WorkflowDriver {
         capability: Arc<dyn crate::PromptReviewCapability>,
     ) -> Self {
         self.prompt_review = Some(capability);
+        self
+    }
+
+    /// Installs safe node/artifact/approval/audit facets from the process service.
+    pub fn with_runtime_facets(mut self, service: super::WorkflowService) -> Self {
+        self.service = Some(service);
         self
     }
 
@@ -232,62 +241,124 @@ impl WorkflowDriver {
             }
         };
         let checkpoint = WorkflowCheckpoint::new(run.state_schema_version, run.state.clone());
-        let parts = WorkflowContextParts::with_cancellation(
+        let nodes = self.service.as_ref().map(|service| service.nodes(run_id));
+        let artifacts = self.service.as_ref().and_then(|service| {
+            service
+                .artifact_store()
+                .map(|store| super::WorkflowArtifactClient::new(store, run_id))
+        });
+        let approvals = self
+            .service
+            .as_ref()
+            .and_then(super::WorkflowService::approval_service);
+        let goals = self
+            .service
+            .as_ref()
+            .and_then(super::WorkflowService::goal_capability)
+            .map(|capability| crate::WorkflowGoalClient::new(run_id, capability));
+        let lark_feature = self
+            .service
+            .as_ref()
+            .and_then(super::WorkflowService::lark_feature_capability);
+        let audit = super::WorkflowAuditClient::new(
+            self.store.clone(),
+            run_id,
+            crate::integrations::fornax::redaction::Redactor::new(
+                self.service
+                    .as_ref()
+                    .map_or_else(Vec::new, super::WorkflowService::audit_secrets),
+            ),
+        );
+        let parts = WorkflowContextParts {
             run_id,
             cancellation,
-            self.fornax.as_ref().map(Arc::clone),
-            self.lark.as_ref().map(Arc::clone),
-            self.prompt_review.as_ref().map(Arc::clone),
-        );
+            fornax: self.fornax.as_ref().map(Arc::clone),
+            lark: self.lark.as_ref().map(Arc::clone),
+            prompt_review: self.prompt_review.as_ref().map(Arc::clone),
+            nodes,
+            artifacts,
+            approvals,
+            goals,
+            lark_feature,
+            audit,
+        };
         let transition = definition
             .step(WorkflowContext::new(&parts), checkpoint)
             .await;
-        let (status, state_schema_version, state, output, error_code, wake, event_kind, outcome) =
-            match transition {
-                Ok(ErasedWorkflowTransition::Continue { checkpoint }) => (
-                    WorkflowRunStatus::Running,
-                    checkpoint.state_schema_version(),
-                    checkpoint.state().clone(),
-                    None,
-                    None,
-                    None,
-                    "run.continued",
-                    DriveOutcome::Continued,
-                ),
-                Ok(ErasedWorkflowTransition::Wait { checkpoint, wake }) => (
-                    WorkflowRunStatus::Waiting,
-                    checkpoint.state_schema_version(),
-                    checkpoint.state().clone(),
-                    None,
-                    None,
-                    Some(serde_json::to_value(wake)?),
-                    "run.waiting",
-                    DriveOutcome::Waiting,
-                ),
-                Ok(ErasedWorkflowTransition::Complete { output }) => (
-                    WorkflowRunStatus::Succeeded,
-                    run.state_schema_version,
-                    run.state.clone(),
-                    Some(output),
-                    None,
-                    None,
-                    "run.succeeded",
-                    DriveOutcome::Completed,
-                ),
-                Err(error) => (
-                    WorkflowRunStatus::Failed,
-                    run.state_schema_version,
-                    run.state.clone(),
-                    None,
-                    Some("workflow_step_failed".to_string()),
-                    None,
-                    "run.failed",
-                    {
-                        tracing::warn!(workflow_run_id = %run_id, %error, "workflow reducer failed");
-                        DriveOutcome::Failed
-                    },
-                ),
-            };
+        let (
+            status,
+            state_schema_version,
+            state,
+            output,
+            error_code,
+            wake,
+            event_kind,
+            event_metadata,
+            outcome,
+        ) = match transition {
+            Ok(ErasedWorkflowTransition::Continue { checkpoint }) => (
+                WorkflowRunStatus::Running,
+                checkpoint.state_schema_version(),
+                checkpoint.state().clone(),
+                None,
+                None,
+                None,
+                "run.continued",
+                json!({}),
+                DriveOutcome::Continued,
+            ),
+            Ok(ErasedWorkflowTransition::Wait { checkpoint, wake }) => (
+                WorkflowRunStatus::Waiting,
+                checkpoint.state_schema_version(),
+                checkpoint.state().clone(),
+                None,
+                None,
+                Some(serde_json::to_value(wake)?),
+                "run.waiting",
+                json!({}),
+                DriveOutcome::Waiting,
+            ),
+            Ok(ErasedWorkflowTransition::NeedsOperator {
+                checkpoint,
+                error_code,
+                metadata,
+            }) => (
+                WorkflowRunStatus::NeedsOperator,
+                checkpoint.state_schema_version(),
+                checkpoint.state().clone(),
+                None,
+                Some(error_code),
+                None,
+                "run.needs_operator",
+                metadata,
+                DriveOutcome::NeedsOperator,
+            ),
+            Ok(ErasedWorkflowTransition::Complete { output }) => (
+                WorkflowRunStatus::Succeeded,
+                run.state_schema_version,
+                run.state.clone(),
+                Some(output),
+                None,
+                None,
+                "run.succeeded",
+                json!({}),
+                DriveOutcome::Completed,
+            ),
+            Err(error) => (
+                WorkflowRunStatus::Failed,
+                run.state_schema_version,
+                run.state.clone(),
+                None,
+                Some("workflow_step_failed".to_string()),
+                None,
+                "run.failed",
+                json!({}),
+                {
+                    tracing::warn!(workflow_run_id = %run_id, %error, "workflow reducer failed");
+                    DriveOutcome::Failed
+                },
+            ),
+        };
         self.store
             .transition_run(
                 &run.run_id,
@@ -303,7 +374,7 @@ impl WorkflowDriver {
                     wake,
                     event_kind: event_kind.to_string(),
                     event_entity_id: Some(run.run_id.clone()),
-                    event_metadata: json!({}),
+                    event_metadata,
                     updated_at_ms: now_ms,
                 },
             )

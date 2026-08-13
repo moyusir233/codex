@@ -4,10 +4,16 @@ use std::sync::atomic::Ordering;
 
 use tokio::sync::Notify;
 
+use crate::WorkflowGoalClient;
 use crate::api::WorkflowRunId;
 use crate::example::PromptReviewCapability;
 use crate::integrations::fornax::FornaxWorkflowClient;
 use crate::runtime::LarkInteractionService;
+use crate::runtime::NodeClient;
+use crate::runtime::WorkflowApprovalService;
+use crate::runtime::WorkflowArtifactClient;
+use crate::runtime::WorkflowAuditClient;
+use crate::workflows::lark_feature::LarkFeatureCapability;
 
 /// Cooperative cancellation view exposed to workflow reducer code.
 #[derive(Clone)]
@@ -96,6 +102,36 @@ impl<'a> WorkflowContext<'a> {
         self.parts.lark.as_deref()
     }
 
+    /// Returns the run-scoped persistent node facade configured by the host.
+    pub fn nodes(&self) -> Option<&NodeClient> {
+        self.parts.nodes.as_ref()
+    }
+
+    /// Returns the run-scoped immutable artifact facade configured by the host.
+    pub fn artifacts(&self) -> Option<&WorkflowArtifactClient> {
+        self.parts.artifacts.as_ref()
+    }
+
+    /// Returns revision-bound approvals configured by the host.
+    pub fn approvals(&self) -> Option<&WorkflowApprovalService> {
+        self.parts.approvals.as_deref()
+    }
+
+    /// Returns the run-scoped goal reconciliation facade configured by the host.
+    pub fn goals(&self) -> Option<&WorkflowGoalClient> {
+        self.parts.goals.as_ref()
+    }
+
+    /// Returns preflight/group and `/grilling` transport for the Lark SDK workflow.
+    pub fn lark_feature(&self) -> Option<&dyn LarkFeatureCapability> {
+        self.parts.lark_feature.as_deref()
+    }
+
+    /// Returns the run-scoped redacting audit facade.
+    pub fn audit(&self) -> &WorkflowAuditClient {
+        &self.parts.audit
+    }
+
     /// Returns the narrow capability used by the registered prompt-review
     /// reference workflow.
     pub fn prompt_review(&self) -> Option<&dyn PromptReviewCapability> {
@@ -104,27 +140,15 @@ impl<'a> WorkflowContext<'a> {
 }
 
 pub(crate) struct WorkflowContextParts {
-    run_id: WorkflowRunId,
-    cancellation: WorkflowCancellation,
-    fornax: Option<Arc<FornaxWorkflowClient>>,
-    lark: Option<Arc<LarkInteractionService>>,
-    prompt_review: Option<Arc<dyn PromptReviewCapability>>,
-}
-
-impl WorkflowContextParts {
-    pub(crate) fn with_cancellation(
-        run_id: WorkflowRunId,
-        cancellation: WorkflowCancellation,
-        fornax: Option<Arc<FornaxWorkflowClient>>,
-        lark: Option<Arc<LarkInteractionService>>,
-        prompt_review: Option<Arc<dyn PromptReviewCapability>>,
-    ) -> Self {
-        Self {
-            run_id,
-            cancellation,
-            fornax,
-            lark,
-            prompt_review,
-        }
-    }
+    pub(crate) run_id: WorkflowRunId,
+    pub(crate) cancellation: WorkflowCancellation,
+    pub(crate) fornax: Option<Arc<FornaxWorkflowClient>>,
+    pub(crate) lark: Option<Arc<LarkInteractionService>>,
+    pub(crate) prompt_review: Option<Arc<dyn PromptReviewCapability>>,
+    pub(crate) nodes: Option<NodeClient>,
+    pub(crate) artifacts: Option<WorkflowArtifactClient>,
+    pub(crate) approvals: Option<Arc<WorkflowApprovalService>>,
+    pub(crate) goals: Option<WorkflowGoalClient>,
+    pub(crate) lark_feature: Option<Arc<dyn LarkFeatureCapability>>,
+    pub(crate) audit: WorkflowAuditClient,
 }

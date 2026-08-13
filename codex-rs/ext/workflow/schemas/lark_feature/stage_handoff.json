@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StageHandoffV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "workflow_run_id",
+    "requirement_id",
+    "requirement_generation",
+    "stage_id",
+    "stage_attempt_id",
+    "prompt",
+    "owning_thread_id",
+    "participant_ids",
+    "source_artifact_ids",
+    "approved_inputs",
+    "repository_path",
+    "worktree_path",
+    "branch",
+    "base_commit",
+    "parent_trace_id",
+    "parent_span_id",
+    "trace_context_id",
+    "approval_policy_id",
+    "security_profile_id",
+    "retry_profile_id",
+    "tool_allowlist_id"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "workflow_run_id": {
+      "type": "string"
+    },
+    "requirement_id": {
+      "type": "string"
+    },
+    "requirement_generation": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "stage_id": {
+      "enum": [
+        "requirements",
+        "technical_design",
+        "exec_plan_design",
+        "execution"
+      ]
+    },
+    "stage_attempt_id": {
+      "type": "string"
+    },
+    "prompt": {
+      "type": "object"
+    },
+    "owning_thread_id": {
+      "type": "string"
+    },
+    "participant_ids": {
+      "type": "array"
+    },
+    "source_artifact_ids": {
+      "type": "array"
+    },
+    "approved_inputs": {
+      "type": "array"
+    },
+    "repository_path": {
+      "type": "string"
+    },
+    "worktree_path": {
+      "type": "string"
+    },
+    "branch": {
+      "type": "string"
+    },
+    "base_commit": {
+      "type": "string"
+    },
+    "parent_trace_id": {
+      "type": "string"
+    },
+    "parent_span_id": {
+      "type": "string"
+    },
+    "trace_context_id": {
+      "type": "string"
+    },
+    "approval_policy_id": {
+      "type": "string"
+    },
+    "security_profile_id": {
+      "type": "string"
+    },
+    "retry_profile_id": {
+      "type": "string"
+    },
+    "tool_allowlist_id": {
+      "type": "string"
+    }
+  }
+}

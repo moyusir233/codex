@@ -5,8 +5,8 @@ use serde::Serialize;
 use serde_json::Value;
 use uuid::Uuid;
 
-pub const FORNAX_BRIDGE_PROTOCOL: u32 = 1;
-pub const FORNAX_BRIDGE_VERSION: &str = "0.1.0";
+pub const FORNAX_BRIDGE_PROTOCOL: u32 = 2;
+pub const FORNAX_BRIDGE_VERSION: &str = "0.2.0";
 pub const FORNAX_SDK_VERSION: &str = "1.0.46";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -34,8 +34,11 @@ pub struct StartSpanRequest {
 #[serde(rename_all = "camelCase")]
 pub enum SpanType {
     Root,
+    Prompt,
+    Model,
     Agent,
     Tool,
+    Retriever,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

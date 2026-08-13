@@ -1,5 +1,6 @@
-"""Protocol-v1 request validation and response helpers."""
+"""Protocol request validation and response helpers."""
 
+import json
 import math
 import re
 import uuid
@@ -97,14 +98,17 @@ class StartSpan:
     parent: SpanParent
 
     @classmethod
-    def parse(cls, body: dict[str, Any]) -> "StartSpan":
+    def parse(cls, body: dict[str, Any], protocol_version: int = 2) -> "StartSpan":
         require_fields(
             body,
             {"operationId", "name", "spanType", "parent"},
             {"operationId", "name", "spanType", "parent"},
         )
         span_type = require_string(body, "spanType", maximum=32)
-        if span_type not in {"root", "agent", "tool"}:
+        supported = {"root", "agent", "tool"}
+        if protocol_version >= 2:
+            supported.update({"prompt", "model", "retriever"})
+        if span_type not in supported:
             raise invalid("unsupported span type")
         return cls(
             operation_id=require_uuid(body, "operationId"),
@@ -173,6 +177,66 @@ class FinishSpan:
     def parse(cls, body: dict[str, Any]) -> "FinishSpan":
         require_fields(body, {"operationId"}, {"operationId"})
         return cls(operation_id=require_uuid(body, "operationId"))
+
+
+def validate_semantic_record(span_type: str, request: RecordSpan) -> None:
+    """Validate protocol-v2 core-span shapes before they reach the SDK journal."""
+    if request.record_type == "tags":
+        values = request.values or {}
+        for key in {
+            "prompt_provider",
+            "prompt_key",
+            "prompt_version",
+            "model_provider",
+            "model_name",
+            "tool_name",
+            "agent_name",
+            "agent_run_id",
+            "retriever_provider",
+            "error",
+        } & values.keys():
+            if not isinstance(values[key], str) or not values[key]:
+                raise invalid(f"semantic tag `{key}` must be a non-empty string")
+        if "_status_code" in values and (
+            not isinstance(values["_status_code"], int)
+            or isinstance(values["_status_code"], bool)
+        ):
+            raise invalid("semantic tag `_status_code` must be an integer")
+        return
+    if request.record_type not in {"input", "output"}:
+        return
+    trace_value = request.value
+    if not isinstance(trace_value, dict):
+        raise invalid("semantic input/output requires a TraceValue")
+    payload = trace_value.get("value")
+    if span_type == "tool" and request.record_type == "output":
+        return
+    if span_type in {"tool", "agent"}:
+        if not isinstance(payload, str) or not payload:
+            raise invalid(f"{span_type} {request.record_type} must be a non-empty string")
+        return
+    if not isinstance(payload, str):
+        raise invalid(f"{span_type} {request.record_type} must be an SDK JSON string")
+    try:
+        decoded = json.loads(payload)
+    except json.JSONDecodeError as error:
+        raise invalid(f"{span_type} {request.record_type} must be a JSON object string") from error
+    if not isinstance(decoded, dict):
+        raise invalid(f"{span_type} {request.record_type} must decode to an object")
+    required = {
+        ("root", "input"): "contents",
+        ("root", "output"): "contents",
+        ("prompt", "input"): "templates",
+        ("prompt", "output"): "prompts",
+        ("model", "input"): "messages",
+        ("model", "output"): "choices",
+        ("retriever", "input"): "query",
+        ("retriever", "output"): "documents",
+    }.get((span_type, request.record_type))
+    if required is None or required not in decoded or not decoded[required]:
+        raise invalid(f"{span_type} {request.record_type} requires `{required}`")
+    if span_type == "model" and request.record_type == "input" and "messsages" in decoded:
+        raise invalid("model input uses pinned SDK field `messages`, not `messsages`")
 
 
 def validated_trace_info(span: Any) -> tuple[str, str, str]:

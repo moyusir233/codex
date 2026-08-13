@@ -1,3 +1,4 @@
+mod approvals;
 mod artifacts;
 mod attempts;
 mod effects;
@@ -16,10 +17,15 @@ mod scheduler;
 #[cfg(test)]
 mod tests;
 
+pub use approvals::WorkflowApprovalDecisionAppend;
+pub use approvals::WorkflowApprovalDecisionAppendOutcome;
+pub use approvals::WorkflowApprovalPlan;
+pub use approvals::WorkflowApprovalPlanOutcome;
 pub use effects::WorkflowEffectPlan;
 pub use effects::WorkflowEffectPlanOutcome;
 pub use effects::WorkflowEffectUpdate;
 pub use effects::canonical_workflow_request_hash;
+pub use fornax::WorkflowFornaxDeliveryProofPlan;
 pub use fornax::WorkflowFornaxTracePlan;
 pub use fornax::WorkflowFornaxTracePlanOutcome;
 pub use fornax::WorkflowFornaxTraceUpdate;

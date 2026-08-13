@@ -22,12 +22,13 @@ use super::WorkflowService;
 use super::service::now_ms;
 
 /// Typed node effects scoped to one workflow run.
-pub struct NodeClient<'a> {
-    pub(super) service: &'a WorkflowService,
+#[derive(Clone)]
+pub struct NodeClient {
+    pub(super) service: WorkflowService,
     pub(super) run_id: WorkflowRunId,
 }
 
-impl NodeClient<'_> {
+impl NodeClient {
     pub async fn ensure(&self, effect: EffectKey, spec: NodeSpec) -> Result<NodeHandle, NodeError> {
         let now = now_ms()?;
         self.service

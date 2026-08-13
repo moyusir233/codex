@@ -44,3 +44,22 @@ CREATE TABLE IF NOT EXISTS spans (
     created_at_ms INTEGER NOT NULL,
     finished_at_ms INTEGER
 );
+
+CREATE TABLE IF NOT EXISTS span_contracts (
+    span_handle_id TEXT PRIMARY KEY REFERENCES spans(span_handle_id) ON DELETE CASCADE,
+    protocol_version INTEGER NOT NULL,
+    span_type TEXT NOT NULL,
+    input_recorded INTEGER NOT NULL DEFAULT 0,
+    output_recorded INTEGER NOT NULL DEFAULT 0,
+    status_code INTEGER,
+    error_recorded INTEGER NOT NULL DEFAULT 0,
+    prompt_provider INTEGER NOT NULL DEFAULT 0,
+    prompt_key INTEGER NOT NULL DEFAULT 0,
+    prompt_version INTEGER NOT NULL DEFAULT 0,
+    model_provider INTEGER NOT NULL DEFAULT 0,
+    model_name INTEGER NOT NULL DEFAULT 0,
+    tool_name INTEGER NOT NULL DEFAULT 0,
+    agent_name INTEGER NOT NULL DEFAULT 0,
+    agent_run_id INTEGER NOT NULL DEFAULT 0,
+    retriever_provider INTEGER NOT NULL DEFAULT 0
+);

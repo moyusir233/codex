@@ -2,6 +2,11 @@ load("//:defs.bzl", "codex_rust_crate")
 
 codex_rust_crate(
     name = "workflow",
-    compile_data = glob(["tests/fixtures/**"]),
+    compile_data = glob([
+        "prompts/**",
+        "schemas/**",
+        "eval/**",
+        "tests/fixtures/**",
+    ]),
     crate_name = "codex_workflow_extension",
 )

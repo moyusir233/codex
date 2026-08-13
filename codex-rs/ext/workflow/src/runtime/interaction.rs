@@ -511,7 +511,7 @@ fn correlation_token(run_id: &str, effect_key: &str) -> String {
 
 fn message_idempotency_key(run_id: &str, effect_key: &str) -> String {
     let digest = Sha256::digest(format!("{run_id}\0{effect_key}\0lark-send"));
-    format!("wf-{}", &format!("{digest:x}")[..48])
+    format!("wf-{}", &format!("{digest:x}")[..47])
 }
 
 #[derive(Debug, thiserror::Error)]

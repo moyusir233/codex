@@ -59,6 +59,19 @@ impl<'a> WorkflowOutput<'a> {
         Ok(())
     }
 
+    pub(super) fn workflow_help(
+        &mut self,
+        definition: &WorkflowDefinitionSummary,
+    ) -> io::Result<()> {
+        if self.json {
+            return self.json_line(&json!({
+                "type": "workflowHelp",
+                "definition": definition,
+            }));
+        }
+        write!(self.stdout, "{}", definition.argv_help)
+    }
+
     pub(super) fn progress(&mut self, message: &str) -> io::Result<()> {
         if self.json {
             return self.json_line(&json!({

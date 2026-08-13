@@ -12,6 +12,54 @@ external resource was created or modified.
 - Commands were invoked through the required `rtk` proxy.
 - Help output was read without passing credentials or selecting a workspace.
 
+### 2026-08-06 implementation reconfirmation
+
+- Harness source: `fa43925012e611e649268f00ca412556ff2ab21f`.
+- Codex source: `d1c082e008aa13486672171c2286ca9559b44f47`.
+- The repository-level include `/Users/bytedance/.codex/RTK.md` is not present in
+  this Linux checkout. The installed `/usr/local/bin/rtk` proxy was used for
+  validation commands, and `codex/AGENTS.md` was read in full.
+- `lark-cli --version` reported `lark-cli version 1.0.0` and
+  `fornax-cli --version` reported `fornax-cli v0.0.51`.
+- Read-only help confirmed that the installed Lark binary exposes document
+  fetch/create/update, chat search/create, raw paginated `im chat.members`
+  get/create, `contact +search-user`, and idempotent message send. The public
+  version string alone is not enough to claim authenticated response or
+  revision/CAS compatibility.
+- No Lark or Fornax authenticated command was run. Live capability remains
+  disabled until disposable, sanitized golden envelopes and delivery evidence
+  are reviewed.
+- The exact Lark profile now has fixture-backed, typed identity search; complete
+  owned-chat search; full chat-member pagination/addition/reconciliation; and
+  immutable document-revision fetch. Chat and document-create reconciliation
+  inspect every page, require one exact ownership marker/body digest, and reject
+  duplicates, continuation-token loops, missing tokens and multiple matches.
+  Document creation is not accepted until a fetch verifies its ID, URL, exact
+  body and nonempty revision. Member addition uses `succeed_type=2`, rejects
+  invalid, missing, or pending IDs, and reconciles an ambiguous result from the
+  complete authoritative member set. Workflow-owned documents use the approved
+  single-writer consistency model: journal expected revision/content digest,
+  fetch before dispatch, issue a deterministic full-content overwrite, then
+  fetch and verify a new revision with the desired digest. Ambiguous timeouts
+  are re-fetched before an idempotent retry. Unexpected pre-write drift,
+  post-write mismatch, post-apply drift, or exhausted observation retries yield
+  `NeedsOperator`; no unexpected content is silently overwritten.
+- The generic `lark-cli api` surface can construct the official docx block
+  update with `document_revision_id` and idempotent `client_token`. Official
+  semantics allow recent historical revisions, so this is revision-aware but
+  not expected-current-revision CAS. Exact evidence and qualification criteria
+  are recorded in `notes/lark-native-document-concurrency.md`.
+- Atomic multi-writer CAS is deliberately not claimed. The product contract
+  requires one writer—the current workflow agent—and excludes external edits by
+  users or applications. `LarkWorkflowCompatibility::Supported` therefore
+  means this revision-aware single-writer protocol is fixture-backed, not that
+  the server rejects concurrent writers.
+- Message idempotency keys are capped at 50 characters. Workflow-generated
+  keys use the `wf-` prefix plus 47 hexadecimal characters.
+- Baseline evidence used integration-test binaries explicitly. The plan's bare
+  name filters selected zero tests under nextest; `--test <binary>` is required
+  for the contract binaries in this checkout.
+
 ## Fornax CLI
 
 `fornax-cli version` reported `fornax-cli v0.0.51`.

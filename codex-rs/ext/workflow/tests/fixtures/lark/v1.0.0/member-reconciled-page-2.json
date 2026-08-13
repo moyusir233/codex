@@ -1,0 +1,21 @@
+{
+  "data": {
+    "items": [
+      {
+        "member_id": "ou_member_02",
+        "member_id_type": "open_id",
+        "name": "Synthetic Two",
+        "tenant_key": "tenant_fixture"
+      },
+      {
+        "member_id": "ou_member_03",
+        "member_id_type": "open_id",
+        "name": "Synthetic Three",
+        "tenant_key": "tenant_fixture"
+      }
+    ],
+    "member_total": 3,
+    "has_more": false,
+    "page_token": null
+  }
+}

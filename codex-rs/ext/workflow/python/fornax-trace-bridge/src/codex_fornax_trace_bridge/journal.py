@@ -12,7 +12,7 @@ from typing import Any
 from . import PROTOCOL_VERSION
 from .errors import BridgeError, conflict
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class Journal:
@@ -184,6 +184,8 @@ class Journal:
         response: dict[str, Any],
         operation_id: str,
         header: dict[str, str],
+        span_type: str,
+        protocol_version: int,
     ) -> None:
         now = _now_ms()
         encoded_header = json.dumps(header, sort_keys=True, separators=(",", ":"))
@@ -214,6 +216,84 @@ class Journal:
                     now,
                 ),
             )
+            self._connection.execute(
+                """
+                INSERT INTO span_contracts (span_handle_id, protocol_version, span_type)
+                VALUES (?, ?, ?)
+                """,
+                (response["spanHandleId"], protocol_version, span_type),
+            )
+
+    def span_contract(self, span_handle_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT * FROM span_contracts WHERE span_handle_id = ?",
+                (span_handle_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def record_contract(self, span_handle_id: str, request: Any) -> None:
+        updates: dict[str, int] = {}
+        if request.record_type == "input":
+            updates["input_recorded"] = 1
+        elif request.record_type == "output":
+            updates["output_recorded"] = 1
+        elif request.record_type == "tags" and request.values:
+            values = request.values
+            for tag, column in {
+                "prompt_provider": "prompt_provider",
+                "prompt_key": "prompt_key",
+                "prompt_version": "prompt_version",
+                "model_provider": "model_provider",
+                "model_name": "model_name",
+                "tool_name": "tool_name",
+                "agent_name": "agent_name",
+                "agent_run_id": "agent_run_id",
+                "retriever_provider": "retriever_provider",
+            }.items():
+                if isinstance(values.get(tag), str) and values[tag]:
+                    updates[column] = 1
+            status = values.get("_status_code")
+            if isinstance(status, int) and not isinstance(status, bool):
+                updates["status_code"] = status
+            if isinstance(values.get("error"), str) and values["error"]:
+                updates["error_recorded"] = 1
+        if not updates:
+            return
+        assignments = ", ".join(f"{column} = ?" for column in updates)
+        with self._lock, self._connection:
+            updated = self._connection.execute(
+                f"UPDATE span_contracts SET {assignments} WHERE span_handle_id = ?",
+                (*updates.values(), span_handle_id),
+            ).rowcount
+            if updated != 1:
+                raise BridgeError("internal", "span contract was not found", 409)
+
+    def verify_contract(self, span_handle_id: str) -> None:
+        contract = self.span_contract(span_handle_id)
+        if not contract or contract["protocol_version"] < 2:
+            return
+        required = ["input_recorded", "output_recorded"]
+        required.extend(
+            {
+                "prompt": ["prompt_provider", "prompt_key", "prompt_version"],
+                "model": ["model_provider", "model_name"],
+                "tool": ["tool_name"],
+                "agent": ["agent_name", "agent_run_id"],
+                "retriever": ["retriever_provider"],
+            }.get(contract["span_type"], [])
+        )
+        missing = [field for field in required if not contract[field]]
+        if missing or contract["status_code"] is None:
+            raise BridgeError(
+                "incompleteSpan",
+                f"span is missing mandatory semantic field `{(missing or ['_status_code'])[0]}`",
+                409,
+            )
+        if contract["status_code"] != 0 and not contract["error_recorded"]:
+            raise BridgeError("incompleteSpan", "failed span is missing mandatory error", 409)
+        if contract["status_code"] == 0 and contract["error_recorded"]:
+            raise BridgeError("incompleteSpan", "successful span contains an error", 409)
 
     def refresh_context(self, trace_context_id: str, header: dict[str, str]) -> None:
         encoded_header = json.dumps(header, sort_keys=True, separators=(",", ":"))

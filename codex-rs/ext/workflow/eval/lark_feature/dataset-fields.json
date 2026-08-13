@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "dataset_version": "1.0.0",
+  "fields": [
+    {"name": "case_id", "type": "string", "required": true},
+    {"name": "split", "type": "enum", "values": ["development", "holdout"], "required": true},
+    {"name": "stage", "type": "string", "required": true},
+    {"name": "scenario_tags", "type": "string_array", "required": true},
+    {"name": "sanitized_input", "type": "json", "required": true},
+    {"name": "injected_outcomes", "type": "json", "required": true},
+    {"name": "expected_policy", "type": "json", "required": true},
+    {"name": "required_actions", "type": "string_array", "required": true},
+    {"name": "forbidden_actions", "type": "string_array", "required": true},
+    {"name": "quality_scores", "type": "number_array", "required": true}
+  ],
+  "provenance": "hand-authored synthetic deterministic fixtures; no production content"
+}

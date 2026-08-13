@@ -1,14 +1,19 @@
 //! Version-pinned, journal-ready `lark-cli` adapters.
 
 mod chats;
+mod compatibility;
 mod config;
+mod document_search;
 mod documents;
 mod error;
 mod events;
 mod identity;
+mod members;
 mod messages;
 mod types;
+mod user_search;
 
+pub use compatibility::LarkWorkflowCompatibility;
 pub use config::LarkCli;
 pub use config::LarkCliConfig;
 pub use config::LarkCliEnvironment;
@@ -23,13 +28,19 @@ pub use identity::OpenId;
 pub use identity::ThreadId;
 pub use types::ChatCreateRequest;
 pub use types::ChatMatch;
+pub use types::ChatMember;
+pub use types::ChatMemberAddResult;
+pub use types::ChatMemberMatch;
+pub use types::ChatMembers;
 pub use types::ChatRecord;
 pub use types::ChatSearchRequest;
 pub use types::ContentSensitivity;
 pub use types::DocumentCreateRequest;
+pub use types::DocumentMatch;
 pub use types::DocumentParent;
 pub use types::DocumentRecord;
 pub use types::DocumentSelection;
+pub use types::DocumentSnapshot;
 pub use types::DocumentUpdateMode;
 pub use types::DocumentUpdateRequest;
 pub use types::DocumentUpdateResult;
@@ -42,3 +53,6 @@ pub use types::MessageReplyRequest;
 pub use types::MessageSendRequest;
 pub use types::MessageTarget;
 pub use types::SentMessage;
+pub use types::UserMatch;
+pub use types::UserRecord;
+pub use types::UserSearchRequest;

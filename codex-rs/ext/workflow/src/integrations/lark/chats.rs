@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::sync::atomic::AtomicBool;
 
@@ -16,7 +17,12 @@ use super::error::invalid;
 struct ChatPage {
     #[serde(default)]
     chats: Vec<ChatRecord>,
+    #[serde(default)]
+    has_more: bool,
+    page_token: Option<String>,
 }
+
+const MAX_CHAT_SEARCH_PAGES: usize = 100;
 
 impl LarkCli {
     pub fn search_chats(
@@ -24,6 +30,20 @@ impl LarkCli {
         request: &ChatSearchRequest,
         cancelled: &AtomicBool,
     ) -> Result<Vec<ChatRecord>, LarkCliError> {
+        if request.query.as_deref().is_none_or(str::is_empty) && request.member_ids.is_empty() {
+            return Err(invalid("chat search needs a query or member IDs"));
+        }
+        if !(1..=100).contains(&request.page_size) {
+            return Err(invalid("chat page size must be between 1 and 100"));
+        }
+        Ok(self.search_chat_page(request, cancelled)?.chats)
+    }
+
+    fn search_chat_page(
+        &self,
+        request: &ChatSearchRequest,
+        cancelled: &AtomicBool,
+    ) -> Result<ChatPage, LarkCliError> {
         if request.query.as_deref().is_none_or(str::is_empty) && request.member_ids.is_empty() {
             return Err(invalid("chat search needs a query or member IDs"));
         }
@@ -46,14 +66,16 @@ impl LarkCli {
                 .join(",");
             push_option(&mut args, "--member-ids", Some(&members));
         }
+        if request.managed_only {
+            args.push(OsString::from("--is-manager"));
+        }
         args.extend([
             OsString::from("--page-size"),
             OsString::from(request.page_size.to_string()),
         ]);
         push_option(&mut args, "--page-token", request.page_token.as_deref());
         args.extend([OsString::from("--format"), OsString::from("json")]);
-        let page: ChatPage = self.run_json(args, &[], cancelled)?;
-        Ok(page.chats)
+        self.run_json(args, &[], cancelled)
     }
 
     pub fn reconcile_chat(
@@ -63,7 +85,7 @@ impl LarkCli {
         cancelled: &AtomicBool,
     ) -> Result<ChatMatch, LarkCliError> {
         let exact = self
-            .search_chats(request, cancelled)?
+            .search_all_chats(request, cancelled)?
             .into_iter()
             .filter(|chat| chat.name == expected_name && chat.chat_status != "dissolved")
             .collect::<Vec<_>>();
@@ -71,6 +93,78 @@ impl LarkCli {
             [] => ChatMatch::Missing,
             [chat] => ChatMatch::Found(chat.clone()),
             _ => ChatMatch::Ambiguous(exact),
+        })
+    }
+
+    /// Reconciles exactly one managed, non-external group with an ownership marker.
+    pub fn reconcile_owned_chat(
+        &self,
+        request: &ChatSearchRequest,
+        expected_name: &str,
+        expected_description: &str,
+        expected_owner: Option<&OpenId>,
+        cancelled: &AtomicBool,
+    ) -> Result<ChatMatch, LarkCliError> {
+        if !request.managed_only || expected_description.trim().is_empty() {
+            return Err(invalid(
+                "owned chat reconciliation requires managed-only search and a marker",
+            ));
+        }
+        let exact = self
+            .search_all_chats(request, cancelled)?
+            .into_iter()
+            .filter(|chat| {
+                chat.name == expected_name
+                    && chat.description == expected_description
+                    && !chat.external
+                    && chat.chat_status == "normal"
+                    && expected_owner.is_none_or(|owner| chat.owner_id == owner.as_str())
+            })
+            .collect::<Vec<_>>();
+        Ok(match exact.as_slice() {
+            [] => ChatMatch::Missing,
+            [chat] => ChatMatch::Found(chat.clone()),
+            _ => ChatMatch::Ambiguous(exact),
+        })
+    }
+
+    fn search_all_chats(
+        &self,
+        request: &ChatSearchRequest,
+        cancelled: &AtomicBool,
+    ) -> Result<Vec<ChatRecord>, LarkCliError> {
+        let mut request = request.clone();
+        let mut seen_page_tokens = BTreeSet::new();
+        let mut seen_chat_ids = BTreeSet::new();
+        let mut chats = Vec::new();
+        for _ in 0..MAX_CHAT_SEARCH_PAGES {
+            let page = self.search_chat_page(&request, cancelled)?;
+            for chat in page.chats {
+                if !seen_chat_ids.insert(chat.chat_id.clone()) {
+                    return Err(LarkCliError::InvalidResponse {
+                        message: "chat search pagination returned a duplicate".to_string(),
+                    });
+                }
+                chats.push(chat);
+            }
+            if !page.has_more {
+                return Ok(chats);
+            }
+            let next = page
+                .page_token
+                .filter(|token| !token.is_empty())
+                .ok_or_else(|| LarkCliError::InvalidResponse {
+                    message: "chat search page omitted its continuation token".to_string(),
+                })?;
+            if !seen_page_tokens.insert(next.clone()) {
+                return Err(LarkCliError::InvalidResponse {
+                    message: "chat search pagination looped".to_string(),
+                });
+            }
+            request.page_token = Some(next);
+        }
+        Err(LarkCliError::InvalidResponse {
+            message: "chat search exceeded its page limit".to_string(),
         })
     }
 

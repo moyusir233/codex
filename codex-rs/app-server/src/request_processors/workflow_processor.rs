@@ -150,9 +150,12 @@ impl WorkflowRequestProcessor {
         let definition = registry
             .resolve(&name, version.as_ref())
             .map_err(|error| workflow_invalid("workflow_not_found", error.to_string()))?;
-        if !definition.metadata().required_capabilities().is_empty()
-            && service.prompt_review_capability().is_none()
-        {
+        let capabilities_available = if name.as_str() == "lark-rust-sdk-feature-development" {
+            service.lark_feature_capability().is_some()
+        } else {
+            service.prompt_review_capability().is_some()
+        };
+        if !definition.metadata().required_capabilities().is_empty() && !capabilities_available {
             return Err(workflow_invalid(
                 "capability_unavailable",
                 format!(

@@ -1,6 +1,8 @@
 use std::ffi::OsString;
 use std::sync::atomic::AtomicBool;
 
+use serde::Deserialize;
+
 use super::DocumentCreateRequest;
 use super::DocumentParent;
 use super::DocumentRecord;
@@ -12,7 +14,41 @@ use super::LarkCli;
 use super::LarkCliError;
 use super::error::invalid;
 
+#[derive(Deserialize)]
+struct DocumentCreateResponse {
+    doc_id: String,
+    doc_url: String,
+    #[serde(default)]
+    message: String,
+}
+
 impl LarkCli {
+    /// Fetches one immutable document revision from the pinned profile.
+    pub fn fetch_document(
+        &self,
+        identity: super::LarkIdentity,
+        document: &str,
+        cancelled: &AtomicBool,
+    ) -> Result<super::DocumentSnapshot, LarkCliError> {
+        if document.trim().is_empty() {
+            return Err(invalid("document identity must not be empty"));
+        }
+        self.run_json(
+            [
+                OsString::from("docs"),
+                OsString::from("+fetch"),
+                OsString::from("--as"),
+                OsString::from(identity.as_str()),
+                OsString::from("--doc"),
+                OsString::from(document),
+                OsString::from("--format"),
+                OsString::from("json"),
+            ],
+            &[],
+            cancelled,
+        )
+    }
+
     pub fn create_document(
         &self,
         request: &DocumentCreateRequest,
@@ -44,7 +80,22 @@ impl LarkCli {
             None => {}
         }
         args.extend([OsString::from("--format"), OsString::from("json")]);
-        self.run_json(args, std::slice::from_ref(&request.markdown), cancelled)
+        let created: DocumentCreateResponse =
+            self.run_json(args, std::slice::from_ref(&request.markdown), cancelled)?;
+        let snapshot = self.fetch_document(request.identity, &created.doc_id, cancelled)?;
+        if snapshot.doc_id != created.doc_id
+            || snapshot.doc_url != created.doc_url
+            || snapshot.markdown != request.markdown
+            || snapshot.revision_id.trim().is_empty()
+        {
+            return Err(LarkCliError::AmbiguousMutation);
+        }
+        Ok(DocumentRecord {
+            doc_id: created.doc_id,
+            doc_url: created.doc_url,
+            revision_id: snapshot.revision_id,
+            message: created.message,
+        })
     }
 
     pub fn update_document(

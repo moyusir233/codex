@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LarkFeatureEvaluationItemV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "case_id", "split", "stage", "scenario_tags", "sanitized_input",
+    "injected_outcomes", "expected_policy", "required_actions",
+    "forbidden_actions", "quality_scores"
+  ],
+  "properties": {
+    "case_id": {"type": "string", "pattern": "^LF-[A-Z0-9-]+$"},
+    "split": {"enum": ["development", "holdout"]},
+    "stage": {"enum": ["preflight", "requirements", "technical_design", "exec_plan_design", "execution", "approval", "delivery"]},
+    "scenario_tags": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+    "sanitized_input": {"type": "object"},
+    "injected_outcomes": {"type": "object"},
+    "expected_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["terminal_class", "next_stage", "hard_veto"],
+      "properties": {
+        "terminal_class": {"enum": ["completed", "waiting", "retry", "needs_operator", "failed_safe", "back_edge", "degraded_continue"]},
+        "next_stage": {"type": ["string", "null"]},
+        "hard_veto": {"type": "boolean"}
+      }
+    },
+    "required_actions": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "forbidden_actions": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "quality_scores": {"type": "array", "minItems": 4, "items": {"type": "number", "minimum": 1, "maximum": 5}}
+  }
+}

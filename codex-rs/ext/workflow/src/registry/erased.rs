@@ -69,6 +69,15 @@ where
                     checkpoint: WorkflowCheckpoint::from_state::<W::State>(&state)?,
                     wake,
                 }),
+                WorkflowTransition::NeedsOperator {
+                    state,
+                    error_code,
+                    metadata,
+                } => Ok(ErasedWorkflowTransition::NeedsOperator {
+                    checkpoint: WorkflowCheckpoint::from_state::<W::State>(&state)?,
+                    error_code,
+                    metadata,
+                }),
                 WorkflowTransition::Complete { output } => {
                     let output = serde_json::to_value(output)
                         .map_err(|err| WorkflowError::Serialization(err.to_string()))?;
@@ -86,6 +95,11 @@ pub(crate) enum ErasedWorkflowTransition {
     Wait {
         checkpoint: WorkflowCheckpoint,
         wake: crate::api::WakeCondition,
+    },
+    NeedsOperator {
+        checkpoint: WorkflowCheckpoint,
+        error_code: String,
+        metadata: Value,
     },
     Complete {
         output: Value,

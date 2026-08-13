@@ -60,6 +60,40 @@ def start_body(index: int = 1) -> dict[str, object]:
     }
 
 
+def complete_root(descriptor: Descriptor, token: str, handle: str, base: int) -> None:
+    for index, record in enumerate(
+        (
+            {
+                "type": "input",
+                "value": {
+                    "type": "plainText",
+                    "value": '{"contents":[{"content_type":"text","text":"safe"}]}',
+                    "classification": "nonSensitive",
+                    "policyGrant": True,
+                },
+            },
+            {
+                "type": "output",
+                "value": {
+                    "type": "plainText",
+                    "value": '{"contents":[{"content_type":"text","text":"done"}]}',
+                    "classification": "nonSensitive",
+                    "policyGrant": True,
+                },
+            },
+            {"type": "tags", "values": {"_status_code": 0}},
+        )
+    ):
+        request_json(
+            descriptor,
+            token,
+            "POST",
+            f"/v1/spans/{handle}/records",
+            {"operationId": operation(base + index), "record": record},
+            timeout=2,
+        )
+
+
 def test_http_span_lifecycle_and_status_lookup(tmp_path: Path) -> None:
     with running_server(tmp_path) as (_server, descriptor, token):
         start = request_json(descriptor, token, "POST", "/v1/spans", start_body(), timeout=2)
@@ -90,6 +124,7 @@ def test_http_span_lifecycle_and_status_lookup(tmp_path: Path) -> None:
         span_status = request_json(descriptor, token, "GET", f"/v1/spans/{handle}", None, timeout=2)
         assert span_status["state"] == "live"
         assert "_header" not in repr(span_status)
+        complete_root(descriptor, token, handle, 10)
         request_json(
             descriptor,
             token,
@@ -181,11 +216,37 @@ def test_http_shutdown_refuses_active_spans(tmp_path: Path) -> None:
             )
         assert active.value.code == "activeSpans"
         assert server._BaseServer__shutdown_request is False
+        complete_root(descriptor, token, start["spanHandleId"], 20)
         request_json(
             descriptor,
             token,
             "POST",
             f"/v1/spans/{start['spanHandleId']}/finish",
             {"operationId": operation(2)},
+            timeout=2,
+        )
+
+
+def test_protocol_v2_finish_rejects_incomplete_semantic_span(tmp_path: Path) -> None:
+    with running_server(tmp_path) as (_server, descriptor, token):
+        start = request_json(descriptor, token, "POST", "/v1/spans", start_body(), timeout=2)
+        handle = start["spanHandleId"]
+        with pytest.raises(BridgeError) as incomplete:
+            request_json(
+                descriptor,
+                token,
+                "POST",
+                f"/v1/spans/{handle}/finish",
+                {"operationId": operation(30)},
+                timeout=2,
+            )
+        assert incomplete.value.code == "incompleteSpan"
+        complete_root(descriptor, token, handle, 31)
+        request_json(
+            descriptor,
+            token,
+            "POST",
+            f"/v1/spans/{handle}/finish",
+            {"operationId": operation(34)},
             timeout=2,
         )

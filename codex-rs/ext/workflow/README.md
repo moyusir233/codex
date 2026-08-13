@@ -67,7 +67,7 @@ Archive and deletion require their dedicated explicit confirmation paths.
 ## Registration
 
 `default_registry()` contains the experimental `prompt-review@1.0.0` reference
-definition. The app server installs that registry once at process composition;
+and `lark-rust-sdk-feature-development@1.0.0` definition. The app server installs that registry once at process composition;
 the CLI uses the same in-process app server, so there is no second definition
 path.
 
@@ -83,6 +83,37 @@ assert_eq!(prompt_review.metadata().version().to_string(), "1.0.0");
 New definitions should be registered only in `default_registry`, declare every
 required capability, use a new semantic version for behavioral incompatibility,
 and keep an explicitly selected default.
+
+## `lark-rust-sdk-feature-development`
+
+This definition owns four independent persistent nodes: requirements,
+technical design, coding ExecPlan design, and execution. Every node receives a
+committed `1.0.0` prompt, a complete immutable `StageHandoffV1`, and a strict
+stage-specific output schema. Requirements invokes `grill-me` on its first
+turn; schema-extracted questions cross a narrow durable Lark transport and are
+submitted back to that same thread. Design invokes `lark-doc`, planning invokes
+`workflow-exec-plan-designer`, and execution is bound to the exact isolated
+worktree with normal goal tools available.
+
+Requirements, design, and plan each have a separate revision/digest-bound
+approval. Delivery rereads the Stage 4 goal and accepts only `complete` with
+distinct verified validation and acceptance artifacts, current approvals,
+code evidence, and a completion report. The definition is discoverable but
+cannot launch until the host installs the exact preflight/group, grilling,
+single-writer revision-aware document update, approval, goal, artifact, node,
+and Fornax capabilities. The current app-server intentionally leaves that live
+feature adapter absent until tenant, identity, retention, Fornax and canary
+authorization gates are supplied.
+
+### Rollout status
+
+Local implementation and deterministic evaluation pass, but live execution is
+disabled. The immutable evidence inventory and reviewed blockers are recorded
+in `eval/lark_feature/release-manifest.json`; the enablement, rollback and
+authorization checklist is in `notes/lark-feature-rollout.md`. A canary was not
+run because this work had no live-mutation authorization. Registration and CLI
+help remain available, while the absent capability bundle makes launch fail
+before workflow or external state is created.
 
 ## `prompt-review`
 
@@ -206,6 +237,7 @@ From the repository root:
 
 ```text
 just test -p codex-workflow-extension prompt_review_e2e
+just test -p codex-workflow-extension lark_feature
 just test -p codex-app-server workflow_example
 just test -p codex-cli workflow_cli
 just test -p codex-workflow-extension compile_api

@@ -41,6 +41,7 @@ use crate::integrations::fornax::safe_tags;
 use crate::integrations::lark::ChatId;
 use crate::integrations::lark::ContentSensitivity;
 use crate::integrations::lark::DocumentCreateRequest;
+use crate::integrations::lark::DocumentMatch;
 use crate::integrations::lark::LarkIdentity;
 use crate::integrations::lark::OpenId;
 use crate::runtime::LarkInteractionService;
@@ -339,6 +340,51 @@ impl LivePromptReviewCapability {
                     WorkflowError::definition("applied Lark document effect has no document ID")
                 });
         }
+        let synthesis_sha256 = format!("{:x}", Sha256::digest(synthesis.as_bytes()));
+        if matches!(
+            record.state,
+            WorkflowEffectState::Dispatched | WorkflowEffectState::Ambiguous
+        ) {
+            return match self.lark.cli().reconcile_document_create(
+                LarkIdentity::User,
+                &title,
+                &synthesis_sha256,
+                cancellation.flag(),
+            ) {
+                Ok(DocumentMatch::Found(document)) => {
+                    if !self
+                        .service
+                        .store()
+                        .update_effect(WorkflowEffectUpdate {
+                            run_id: run_id.to_string(),
+                            effect_key: effect_key.to_string(),
+                            expected_state: record.state,
+                            state: WorkflowEffectState::Applied,
+                            response: Some(json!({
+                                "doc_id": document.doc_id,
+                                "doc_url": document.doc_url,
+                                "revision_id": document.revision_id,
+                                "reconciled": true,
+                            })),
+                            error_code: None,
+                            updated_at_ms: now_ms()?,
+                        })
+                        .await
+                        .map_err(definition_error)?
+                    {
+                        return Err(WorkflowError::definition(
+                            "reconciled Lark document effect changed concurrently",
+                        ));
+                    }
+                    Ok(document.doc_id)
+                }
+                Ok(DocumentMatch::Missing | DocumentMatch::Ambiguous(_)) | Err(_) => {
+                    Err(WorkflowError::definition(
+                        "Lark document create is ambiguous and needs operator reconciliation",
+                    ))
+                }
+            };
+        }
         if record.state != WorkflowEffectState::Planned {
             return Err(WorkflowError::definition(
                 "Lark document create is ambiguous and needs operator reconciliation",
@@ -366,7 +412,7 @@ impl LivePromptReviewCapability {
         match self.lark.cli().create_document(
             &DocumentCreateRequest {
                 identity: LarkIdentity::Bot,
-                title: Some(title),
+                title: Some(title.clone()),
                 markdown: synthesis.to_string(),
                 parent: None,
                 sensitivity: ContentSensitivity::NonSensitive,
@@ -384,6 +430,7 @@ impl LivePromptReviewCapability {
                         response: Some(json!({
                             "doc_id": document.doc_id,
                             "doc_url": document.doc_url,
+                            "revision_id": document.revision_id,
                         })),
                         error_code: None,
                         updated_at_ms: now_ms()?,
@@ -393,6 +440,40 @@ impl LivePromptReviewCapability {
                 Ok(document.doc_id)
             }
             Err(error) => {
+                if let Ok(DocumentMatch::Found(document)) =
+                    self.lark.cli().reconcile_document_create(
+                        LarkIdentity::User,
+                        &title,
+                        &synthesis_sha256,
+                        cancellation.flag(),
+                    )
+                {
+                    if self
+                        .service
+                        .store()
+                        .update_effect(WorkflowEffectUpdate {
+                            run_id: run_id.to_string(),
+                            effect_key: effect_key.to_string(),
+                            expected_state: WorkflowEffectState::Dispatched,
+                            state: WorkflowEffectState::Applied,
+                            response: Some(json!({
+                                "doc_id": document.doc_id,
+                                "doc_url": document.doc_url,
+                                "revision_id": document.revision_id,
+                                "reconciled": true,
+                            })),
+                            error_code: None,
+                            updated_at_ms: now_ms()?,
+                        })
+                        .await
+                        .map_err(definition_error)?
+                    {
+                        return Ok(document.doc_id);
+                    }
+                    return Err(WorkflowError::definition(
+                        "reconciled Lark document effect changed concurrently",
+                    ));
+                }
                 self.service
                     .store()
                     .update_effect(WorkflowEffectUpdate {

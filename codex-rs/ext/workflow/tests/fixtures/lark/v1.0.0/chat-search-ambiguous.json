@@ -1,0 +1,16 @@
+{
+  "data": {
+    "chats": [
+      {
+        "chat_id": "oc_demo_03",
+        "name": "workflow-demo",
+        "description": "synthetic fixture",
+        "owner_id": "ou_owner_01",
+        "external": false,
+        "chat_status": "normal"
+      }
+    ],
+    "has_more": true,
+    "page_token": "chats-2"
+  }
+}

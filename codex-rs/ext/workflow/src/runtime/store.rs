@@ -73,6 +73,55 @@ pub struct WorkflowArtifactWrite<'a> {
     pub created_at_ms: i64,
 }
 
+/// Run-scoped immutable artifact facade exposed to reducer code.
+#[derive(Clone)]
+pub struct WorkflowArtifactClient {
+    store: WorkflowArtifactStore,
+    run_id: WorkflowRunId,
+}
+
+/// Borrowed inputs for one run-scoped artifact write.
+pub struct WorkflowArtifactClientWrite<'a> {
+    pub artifact_id: ArtifactId,
+    pub relative_path: &'a Path,
+    pub classification: ArtifactClassification,
+    pub media_type: &'a str,
+    pub bytes: &'a [u8],
+    pub created_at_ms: i64,
+}
+
+impl WorkflowArtifactClient {
+    pub(crate) fn new(store: WorkflowArtifactStore, run_id: WorkflowRunId) -> Self {
+        Self { store, run_id }
+    }
+
+    /// Reads and verifies one immutable artifact owned by this run.
+    pub async fn read(
+        &self,
+        artifact_id: ArtifactId,
+    ) -> Result<Vec<u8>, WorkflowArtifactStoreError> {
+        self.store.read(self.run_id, artifact_id).await
+    }
+
+    /// Writes one immutable artifact owned by this run.
+    pub async fn write(
+        &self,
+        write: WorkflowArtifactClientWrite<'_>,
+    ) -> Result<ArtifactMetadata, WorkflowArtifactStoreError> {
+        self.store
+            .write(WorkflowArtifactWrite {
+                run_id: self.run_id,
+                artifact_id: write.artifact_id,
+                relative_path: write.relative_path,
+                classification: write.classification,
+                media_type: write.media_type,
+                bytes: write.bytes,
+                created_at_ms: write.created_at_ms,
+            })
+            .await
+    }
+}
+
 impl WorkflowArtifactStore {
     /// Creates an artifact store rooted below the supplied Codex home.
     pub fn new(codex_home: &Path, state: WorkflowStore) -> Self {

@@ -51,6 +51,7 @@ use crate::thread_state::ConnectionCapabilities;
 use crate::thread_state::ThreadStateManager;
 use crate::transport::AppServerTransport;
 use crate::transport::RemoteControlHandle;
+use crate::workflow_goal_adapter::AppServerWorkflowGoalAdapter;
 use crate::workflow_subscriptions::WorkflowSubscriptions;
 use codex_analytics::AnalyticsEventsClient;
 use codex_analytics::AppServerRpcTransport;
@@ -266,12 +267,22 @@ impl MessageProcessor {
         let goal_service = Arc::new(GoalService::new());
         let workflow_node_host_slot = codex_workflow_extension::WorkflowNodeHostSlot::new();
         let workflow_service = state_db.as_ref().map(|state| {
+            let goal_adapter = Arc::new(AppServerWorkflowGoalAdapter::new(
+                Arc::clone(state),
+                state.workflows().clone(),
+                Arc::clone(&goal_service),
+            ));
             Arc::new(
                 codex_workflow_extension::WorkflowService::new_with_registry(
                     state.workflows().clone(),
                     workflow_node_host_slot.clone(),
                     built_in_workflow_registry(),
-                ),
+                )
+                .with_artifact_store(codex_workflow_extension::WorkflowArtifactStore::new(
+                    &config.codex_home,
+                    state.workflows().clone(),
+                ))
+                .with_goal_capability(goal_adapter),
             )
         });
         let workflow_subscriptions = workflow_service.as_ref().map(|service| {
@@ -1640,6 +1651,21 @@ mod workflow_example_tests {
                 .required_capabilities()
                 .iter()
                 .any(|capability| capability == "lark.human-interaction")
+        );
+
+        let name = codex_workflow_extension::WorkflowName::new("lark-rust-sdk-feature-development")
+            .expect("workflow name");
+        let definition = registry.resolve(&name, None).expect("default definition");
+        assert_eq!(definition.metadata().version().to_string(), "1.0.0");
+        assert!(definition.metadata().is_default());
+        assert!(
+            definition
+                .metadata()
+                .required_capabilities()
+                .iter()
+                .any(|capability| {
+                    capability == "lark.documents.single-writer-revision-aware.v1"
+                })
         );
     }
 }

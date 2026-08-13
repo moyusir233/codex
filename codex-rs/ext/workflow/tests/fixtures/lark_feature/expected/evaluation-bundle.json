@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "dataset_version": "1.0.0",
+  "total_cases": 16,
+  "normal_holdout_cases": 1,
+  "normal_holdout_success_percent": 100.0,
+  "adverse_cases": 15,
+  "adverse_safe_disposition_percent": 100.0,
+  "contract_valid_percent": 100.0,
+  "approval_gate_enforcement_percent": 100.0,
+  "trace_required_fields_percent": 100.0,
+  "correct_back_edges_percent": 100.0,
+  "minimum_dimension_score": 4.4,
+  "stage_mean_minimum": 4.5,
+  "critical_hallucinations": 0,
+  "critical_leaks": 0,
+  "false_completions": 0,
+  "hard_veto_failures": 0,
+  "release_decision": "local_m6_pass_live_disabled"
+}

@@ -1,6 +1,7 @@
 use serde_json::json;
 use sqlx::Row;
 
+use crate::WorkflowFornaxDeliveryProofRecord;
 use crate::WorkflowFornaxTraceRecord;
 use crate::WorkflowFornaxTraceState;
 
@@ -34,6 +35,18 @@ pub struct WorkflowFornaxTraceUpdate {
     pub bridge_instance_id: Option<String>,
     pub error_code: Option<String>,
     pub updated_at_ms: i64,
+}
+
+pub struct WorkflowFornaxDeliveryProofPlan {
+    pub run_id: String,
+    pub effect_key: String,
+    pub operation_id: String,
+    pub request_hash: String,
+    pub remote_trace_id: String,
+    pub remote_span_id: String,
+    pub proof_kind: String,
+    pub proof_digest: String,
+    pub reconciled_at_ms: i64,
 }
 
 impl WorkflowStore {
@@ -115,6 +128,134 @@ WHERE run_id = ? AND effect_key = ?
         .fetch_optional(self.pool())
         .await?;
         row.map(fornax_trace_from_row).transpose()
+    }
+
+    /// Lists the durable local-delivery journal for one run in effect-key order.
+    pub async fn list_fornax_traces(
+        &self,
+        run_id: &str,
+    ) -> Result<Vec<WorkflowFornaxTraceRecord>, WorkflowStoreError> {
+        let rows = sqlx::query(
+            r#"
+SELECT run_id, effect_key, operation_id, request_hash, span_handle_id,
+       trace_context_id, trace_id, span_id, bridge_instance_id, state, error_code
+FROM workflow_fornax_traces
+WHERE run_id = ?
+ORDER BY effect_key
+            "#,
+        )
+        .bind(run_id)
+        .fetch_all(self.pool())
+        .await?;
+        rows.into_iter().map(fornax_trace_from_row).collect()
+    }
+
+    /// Appends exact remote reconciliation evidence without rewriting local bridge history.
+    pub async fn record_fornax_delivery_proof(
+        &self,
+        proof: WorkflowFornaxDeliveryProofPlan,
+    ) -> Result<WorkflowFornaxDeliveryProofRecord, WorkflowStoreError> {
+        let mut tx = self.pool().begin().await?;
+        let correlation = sqlx::query(
+            r#"
+SELECT operation_id, request_hash
+FROM workflow_fornax_traces
+WHERE run_id = ? AND effect_key = ?
+            "#,
+        )
+        .bind(&proof.run_id)
+        .bind(&proof.effect_key)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(correlation) = correlation else {
+            return Err(WorkflowStoreError::FornaxDeliveryProofConflict);
+        };
+        if correlation.try_get::<String, _>("operation_id")? != proof.operation_id
+            || correlation.try_get::<String, _>("request_hash")? != proof.request_hash
+        {
+            return Err(WorkflowStoreError::FornaxDeliveryProofConflict);
+        }
+        let result = sqlx::query(
+            r#"
+INSERT INTO workflow_fornax_delivery_proofs (
+    run_id, effect_key, operation_id, request_hash, remote_trace_id,
+    remote_span_id, proof_kind, proof_digest, reconciled_at_ms
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(run_id, effect_key) DO NOTHING
+            "#,
+        )
+        .bind(&proof.run_id)
+        .bind(&proof.effect_key)
+        .bind(&proof.operation_id)
+        .bind(&proof.request_hash)
+        .bind(&proof.remote_trace_id)
+        .bind(&proof.remote_span_id)
+        .bind(&proof.proof_kind)
+        .bind(&proof.proof_digest)
+        .bind(proof.reconciled_at_ms)
+        .execute(&mut *tx)
+        .await?;
+        let row = sqlx::query(
+            r#"
+SELECT run_id, effect_key, operation_id, request_hash, remote_trace_id,
+       remote_span_id, proof_kind, proof_digest, reconciled_at_ms
+FROM workflow_fornax_delivery_proofs
+WHERE run_id = ? AND effect_key = ?
+            "#,
+        )
+        .bind(&proof.run_id)
+        .bind(&proof.effect_key)
+        .fetch_one(&mut *tx)
+        .await?;
+        let record = fornax_delivery_proof_from_row(row)?;
+        if record.operation_id != proof.operation_id
+            || record.request_hash != proof.request_hash
+            || record.remote_trace_id != proof.remote_trace_id
+            || record.remote_span_id != proof.remote_span_id
+            || record.proof_kind != proof.proof_kind
+            || record.proof_digest != proof.proof_digest
+        {
+            return Err(WorkflowStoreError::FornaxDeliveryProofConflict);
+        }
+        if result.rows_affected() == 1 {
+            append_event(
+                &mut tx,
+                &proof.run_id,
+                "fornax.delivery_reconciled",
+                Some(&proof.operation_id),
+                &json!({
+                    "effect_key": proof.effect_key,
+                    "request_hash": proof.request_hash,
+                    "proof_kind": proof.proof_kind,
+                    "proof_digest": proof.proof_digest,
+                }),
+                proof.reconciled_at_ms,
+            )
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(record)
+    }
+
+    pub async fn list_fornax_delivery_proofs(
+        &self,
+        run_id: &str,
+    ) -> Result<Vec<WorkflowFornaxDeliveryProofRecord>, WorkflowStoreError> {
+        let rows = sqlx::query(
+            r#"
+SELECT run_id, effect_key, operation_id, request_hash, remote_trace_id,
+       remote_span_id, proof_kind, proof_digest, reconciled_at_ms
+FROM workflow_fornax_delivery_proofs
+WHERE run_id = ?
+ORDER BY effect_key
+            "#,
+        )
+        .bind(run_id)
+        .fetch_all(self.pool())
+        .await?;
+        rows.into_iter()
+            .map(fornax_delivery_proof_from_row)
+            .collect()
     }
 
     /// Advances recovery state while making all observed identifiers immutable.
@@ -225,5 +366,21 @@ fn fornax_trace_from_row(
         bridge_instance_id: row.try_get("bridge_instance_id")?,
         state: WorkflowFornaxTraceState::parse(&row.try_get::<String, _>("state")?)?,
         error_code: row.try_get("error_code")?,
+    })
+}
+
+fn fornax_delivery_proof_from_row(
+    row: sqlx::sqlite::SqliteRow,
+) -> Result<WorkflowFornaxDeliveryProofRecord, WorkflowStoreError> {
+    Ok(WorkflowFornaxDeliveryProofRecord {
+        run_id: row.try_get("run_id")?,
+        effect_key: row.try_get("effect_key")?,
+        operation_id: row.try_get("operation_id")?,
+        request_hash: row.try_get("request_hash")?,
+        remote_trace_id: row.try_get("remote_trace_id")?,
+        remote_span_id: row.try_get("remote_span_id")?,
+        proof_kind: row.try_get("proof_kind")?,
+        proof_digest: row.try_get("proof_digest")?,
+        reconciled_at_ms: row.try_get("reconciled_at_ms")?,
     })
 }

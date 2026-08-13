@@ -14,6 +14,8 @@ use codex_state::WorkflowRunCreate;
 use codex_workflow_extension::integrations::fornax::DurableFornaxTraceWriter;
 use codex_workflow_extension::integrations::fornax::FornaxBridgeConfig;
 use codex_workflow_extension::integrations::fornax::FornaxBridgeEnvironment;
+use codex_workflow_extension::integrations::fornax::FornaxDeliveryReporter;
+use codex_workflow_extension::integrations::fornax::FornaxDeliveryState;
 use codex_workflow_extension::integrations::fornax::FornaxSpanCorrelation;
 use codex_workflow_extension::integrations::fornax::FornaxTraceWriter;
 use codex_workflow_extension::integrations::fornax::SpanParent;
@@ -66,10 +68,20 @@ async fn fornax_bridge_durable_writer_persists_every_start_correlation() {
             "finish-response.json",
         ] {
             let request = server.recv().expect("request");
+            let mut response: serde_json::Value =
+                serde_json::from_slice(&fixture(fixture_name)).expect("fixture JSON");
+            response["protocolVersion"] = json!(2);
+            if fixture_name == "health-response.json" {
+                response["bridgeVersion"] = json!("0.2.0");
+            }
             request
-                .respond(Response::from_data(fixture(fixture_name)).with_header(
-                    Header::from_bytes("Content-Type", "application/json").expect("content type"),
-                ))
+                .respond(
+                    Response::from_data(serde_json::to_vec(&response).expect("response JSON"))
+                        .with_header(
+                            Header::from_bytes("Content-Type", "application/json")
+                                .expect("content type"),
+                        ),
+                )
                 .expect("response");
         }
     });
@@ -81,8 +93,8 @@ async fn fornax_bridge_durable_writer_persists_every_start_correlation() {
             "#!/bin/sh\nprintf '%s\\n' '{}'\n",
             json!({
                 "status": "alreadyRunning",
-                "protocolVersion": 1,
-                "bridgeVersion": "0.1.0",
+                "protocolVersion": 2,
+                "bridgeVersion": "0.2.0",
                 "sdkVersion": "1.0.46",
                 "instanceId": "fbi_fixture",
                 "pid": std::process::id(),
@@ -215,6 +227,54 @@ async fn fornax_bridge_durable_writer_persists_every_start_correlation() {
         .expect("finish correlation");
     assert_eq!(finish.state, WorkflowFornaxTraceState::Finished);
     assert_eq!(finish.span_handle_id, correlation.span_handle_id);
+    let reporter = FornaxDeliveryReporter::new(runtime.workflows().clone(), "run-fornax-durable");
+    let backlog = reporter.backlog().await.expect("delivery backlog");
+    assert_eq!(backlog.len(), 3);
+    assert!(
+        backlog
+            .iter()
+            .all(|report| report.state == FornaxDeliveryState::AcceptedLocal)
+    );
+    assert!(
+        backlog
+            .iter()
+            .all(|report| report.state != FornaxDeliveryState::DeliveredRemote)
+    );
+    let proof = reporter
+        .reconcile_remote(
+            "trace.root.finish",
+            "4bf92f3577b34da6a3ce929d0e0e4736",
+            "00f067aa0ba902b7",
+            "trace_get_full",
+            &"a".repeat(64),
+            105,
+        )
+        .await
+        .expect("record remote reconciliation proof");
+    assert_eq!(proof.operation_id, finish_operation.to_string());
+    let reconciled = reporter.backlog().await.expect("reconciled backlog");
+    let delivered = reconciled
+        .iter()
+        .find(|report| report.effect_key == "trace.root.finish")
+        .expect("delivered report");
+    assert_eq!(delivered.state, FornaxDeliveryState::DeliveredRemote);
+    assert_eq!(
+        delivered.remote_trace_id.as_deref(),
+        Some("4bf92f3577b34da6a3ce929d0e0e4736")
+    );
+    assert!(
+        reporter
+            .reconcile_remote(
+                "trace.root.finish",
+                "different-trace",
+                "00f067aa0ba902b7",
+                "trace_get_full",
+                &"a".repeat(64),
+                106,
+            )
+            .await
+            .is_err()
+    );
     server_thread.join().expect("server thread");
     assert_eq!(
         finished,

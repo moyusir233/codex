@@ -209,6 +209,35 @@ async fn run_connected(
         output.definitions(&response.data)?;
         return Ok(EXIT_SUCCESS);
     }
+    if matches!(cli.workflow_args(), [argument] if argument == "--help" || argument == "-h") {
+        let response: WorkflowListResponse = request(
+            client,
+            ClientRequest::WorkflowList {
+                request_id: request_ids.next(),
+                params: WorkflowListParams {},
+            },
+        )
+        .await
+        .map_err(|error| render_request_error(output, error))?;
+        let definition = response.data.iter().find(|definition| {
+            definition.name == cli.workflow_name().unwrap_or_default()
+                && cli
+                    .version
+                    .as_ref()
+                    .map_or(definition.is_default, |version| {
+                        &definition.version == version
+                    })
+        });
+        let Some(definition) = definition else {
+            output.error(
+                "workflow_not_found",
+                "workflow name/version was not found in the registry",
+            )?;
+            return Ok(EXIT_USAGE);
+        };
+        output.workflow_help(definition)?;
+        return Ok(EXIT_SUCCESS);
+    }
 
     let mut run = if let Some(run_id) = cli.resume_run.as_ref() {
         let response: WorkflowRunResumeResponse = request(

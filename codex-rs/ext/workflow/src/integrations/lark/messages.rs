@@ -154,7 +154,7 @@ fn push_body(
 
 fn validate_key(key: &str) -> Result<(), LarkCliError> {
     if key.is_empty()
-        || key.len() > 128
+        || key.len() > 50
         || !key
             .chars()
             .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))

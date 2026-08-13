@@ -2,6 +2,7 @@ use std::time::SystemTime;
 
 use serde::Deserialize;
 use serde::Serialize;
+use serde_json::Value;
 
 use crate::api::InteractionId;
 use crate::api::NodeId;
@@ -20,6 +21,15 @@ pub enum WorkflowTransition<S, O> {
         state: S,
         /// Durable condition that can make the run runnable again.
         wake: WakeCondition,
+    },
+    /// Persist an actionable checkpoint and transfer ownership to an operator.
+    NeedsOperator {
+        /// Checkpoint from which an explicit operator resume can continue.
+        state: S,
+        /// Stable machine-readable reason code, without sensitive details.
+        error_code: String,
+        /// Redacted structured evidence explaining the required action.
+        metadata: Value,
     },
     /// Persist the successful terminal output.
     Complete {

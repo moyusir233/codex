@@ -67,9 +67,15 @@ mod downstream_definition {
 
         async fn step(
             &self,
-            _ctx: WorkflowContext<'_>,
+            ctx: WorkflowContext<'_>,
             state: Self::State,
         ) -> Result<WorkflowTransition<Self::State, Self::Output>, WorkflowError> {
+            let _nodes = ctx.nodes();
+            let _artifacts = ctx.artifacts();
+            let _approvals = ctx.approvals();
+            let _goals = ctx.goals();
+            let _lark_feature = ctx.lark_feature();
+            let _audit = ctx.audit();
             Ok(WorkflowTransition::Complete {
                 output: Output { value: state.value },
             })
@@ -80,5 +86,11 @@ mod downstream_definition {
 #[test]
 fn compile_api_external_style_module_implements_public_api() {
     fn assert_workflow<W: codex_workflow_extension::Workflow>(_workflow: W) {}
+    fn assert_goal_capability<T: ?Sized + codex_workflow_extension::WorkflowGoalCapability>() {}
+
     assert_workflow(downstream_definition::Definition);
+    assert_goal_capability::<dyn codex_workflow_extension::WorkflowGoalCapability>();
+    let _ = std::mem::size_of::<codex_workflow_extension::WorkflowGoalEnsureRequest>();
+    let _ = std::mem::size_of::<codex_workflow_extension::WorkflowGoalSnapshot>();
+    let _ = std::mem::size_of::<codex_workflow_extension::WorkflowGoalDeliveryEvidence>();
 }

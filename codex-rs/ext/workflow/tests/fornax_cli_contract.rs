@@ -11,10 +11,12 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 use std::time::Instant;
 
+use codex_workflow_extension::integrations::fornax::ExperimentEvaluatorOnlyRequest;
 use codex_workflow_extension::integrations::fornax::FornaxCli;
 use codex_workflow_extension::integrations::fornax::FornaxCliConfig;
 use codex_workflow_extension::integrations::fornax::FornaxCliEnvironment;
 use codex_workflow_extension::integrations::fornax::FornaxCliError;
+use codex_workflow_extension::integrations::fornax::FornaxPageRequest;
 use codex_workflow_extension::integrations::fornax::PromptDraft;
 use codex_workflow_extension::integrations::fornax::PromptLookup;
 use codex_workflow_extension::integrations::fornax::PromptRenderError;
@@ -37,6 +39,7 @@ const SKILLS: &str = include_str!("fixtures/fornax-cli/v0.0.51/skills.json");
 const TRACE: &str = include_str!("fixtures/fornax-cli/v0.0.51/trace.json");
 const SPAN_PAGE: &str = include_str!("fixtures/fornax-cli/v0.0.51/span-page.json");
 const TRAJECTORY: &str = include_str!("fixtures/fornax-cli/v0.0.51/trajectory.json");
+const RESOURCE: &str = include_str!("fixtures/fornax-cli/v0.0.51/resource.json");
 
 struct FakeCli {
     temp: tempfile::TempDir,
@@ -59,6 +62,7 @@ impl FakeCli {
             ("trace.json", TRACE),
             ("span-page.json", SPAN_PAGE),
             ("trajectory.json", TRAJECTORY),
+            ("resource.json", RESOURCE),
         ] {
             std::fs::write(fixture_root.join(name), contents)?;
         }
@@ -115,6 +119,9 @@ fn version_is_pinned_and_never_claims_cli_trace_write() -> Result<(), Box<dyn st
     assert!(capabilities.skill_read_and_stage);
     assert!(capabilities.trace_read);
     assert!(!capabilities.trace_write);
+    assert!(capabilities.evaluation);
+    assert!(capabilities.synthesis);
+    assert!(capabilities.model_and_user_read);
 
     let unsupported = fake
         .client("normal", "0.0.52", Duration::from_secs(1), 64 * 1024)
@@ -309,6 +316,70 @@ fn trace_span_and_trajectory_readers_preserve_stable_windows_and_pagination()
     assert!(args.contains("--start-ms 1000 --end-ms 2000"));
     assert!(args.contains("--page-token page-1"));
     assert!(args.contains("trajectory --trace-id"));
+    Ok(())
+}
+
+#[test]
+fn evaluation_resource_commands_are_typed_and_evaluator_only_submit_is_closed()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fake = FakeCli::new()?;
+    let client = fake.client("normal", "0.0.51", Duration::from_secs(1), 64 * 1024);
+    let cancelled = AtomicBool::new(false);
+    client.list_datasets(Some("regression"), Some("cursor-1"), 20, &cancelled)?;
+    client.list_eval_sets(
+        Some("sdk"),
+        &FornaxPageRequest {
+            page_size: 25,
+            page_token: Some("page-2".to_string()),
+        },
+        &cancelled,
+    )?;
+    client.list_evaluators(Some("contract"), 50, &cancelled)?;
+    client.experiment_detail("experiment-1", &cancelled)?;
+    client.list_synthesis_jobs(&["job-1".to_string()], &cancelled)?;
+    client.list_models(20, &["Available".to_string()], &cancelled)?;
+    client.get_users_by_external_ids(&["ou_safe".to_string()], &cancelled)?;
+    client.submit_evaluator_only_experiment(
+        &ExperimentEvaluatorOnlyRequest {
+            name: "sdk-contract".to_string(),
+            eval_set_id: "eval-set-1".to_string(),
+            eval_set_version: "1.0.0".to_string(),
+            evaluators: vec!["evaluator-1:1.0.0".to_string()],
+            evaluator_mappings: vec!["evaluator-1:1.0.0:input=input".to_string()],
+            item_retry_num: 3,
+        },
+        &cancelled,
+    )?;
+    let args = fake.args();
+    for command in [
+        "dataset list",
+        "eval-set list",
+        "evaluator list",
+        "experiment detail",
+        "synthesis list",
+        "model list",
+        "user get",
+        "experiment submit",
+    ] {
+        assert!(args.contains(command), "missing command {command}");
+    }
+    assert!(args.contains("--skip-target"));
+    assert!(!args.contains("--target-type"));
+    assert!(
+        client
+            .submit_evaluator_only_experiment(
+                &ExperimentEvaluatorOnlyRequest {
+                    name: "bad".to_string(),
+                    eval_set_id: "set".to_string(),
+                    eval_set_version: "latest".to_string(),
+                    evaluators: Vec::new(),
+                    evaluator_mappings: Vec::new(),
+                    item_retry_num: 11,
+                },
+                &cancelled,
+            )
+            .is_err()
+    );
     Ok(())
 }
 
@@ -514,6 +585,9 @@ case "$*" in
     ;;
   *"trajectory"*)
     /bin/cat "$FIXTURE_ROOT/trajectory.json"
+    ;;
+  *"dataset list"*|*"eval-set list"*|*"evaluator list"*|*"experiment detail"*|*"experiment submit"*|*"synthesis list"*|*"model list"*|*"user get"*)
+    /bin/cat "$FIXTURE_ROOT/resource.json"
     ;;
   *)
     printf 'unsupported fake command\n' >&2

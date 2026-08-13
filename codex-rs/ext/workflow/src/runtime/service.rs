@@ -28,6 +28,12 @@ pub(super) struct WorkflowServiceInner {
     pub(super) failure_injector: FailureInjector,
     pub(super) cancellation_signals: CancellationSignals,
     pub(super) prompt_review: Option<Arc<dyn crate::PromptReviewCapability>>,
+    pub(super) artifact_store: Option<super::WorkflowArtifactStore>,
+    pub(super) approval_service: Option<Arc<super::WorkflowApprovalService>>,
+    pub(super) goal_capability: Option<Arc<dyn crate::WorkflowGoalCapability>>,
+    pub(super) lark_feature_capability:
+        Option<Arc<dyn crate::workflows::lark_feature::LarkFeatureCapability>>,
+    pub(super) audit_secrets: Vec<String>,
 }
 
 impl WorkflowService {
@@ -61,6 +67,11 @@ impl WorkflowService {
                 failure_injector,
                 cancellation_signals: CancellationSignals::default(),
                 prompt_review: None,
+                artifact_store: None,
+                approval_service: None,
+                goal_capability: None,
+                lark_feature_capability: None,
+                audit_secrets: Vec::new(),
             }),
         }
     }
@@ -77,13 +88,59 @@ impl WorkflowService {
         self
     }
 
+    /// Installs the run-scoped artifact facade used by workflow definitions.
+    pub fn with_artifact_store(mut self, store: super::WorkflowArtifactStore) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .unwrap_or_else(|| panic!("workflow service was shared before configuration"))
+            .artifact_store = Some(store);
+        self
+    }
+
+    /// Installs revision-bound approvals after their Lark transport is preflighted.
+    pub fn with_approval_service(mut self, service: Arc<super::WorkflowApprovalService>) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .unwrap_or_else(|| panic!("workflow service was shared before configuration"))
+            .approval_service = Some(service);
+        self
+    }
+
+    /// Installs the host-owned goal adapter before the service is shared.
+    pub fn with_goal_capability(
+        mut self,
+        capability: Arc<dyn crate::WorkflowGoalCapability>,
+    ) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .unwrap_or_else(|| panic!("workflow service was shared before configuration"))
+            .goal_capability = Some(capability);
+        self
+    }
+
+    /// Installs the preflight/group and grilling transport required by the Lark workflow.
+    pub fn with_lark_feature_capability(
+        mut self,
+        capability: Arc<dyn crate::workflows::lark_feature::LarkFeatureCapability>,
+    ) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .unwrap_or_else(|| panic!("workflow service was shared before configuration"))
+            .lark_feature_capability = Some(capability);
+        self
+    }
+
+    /// Installs exact secret values that must be removed from reducer audit records.
+    pub fn with_audit_secrets(mut self, secrets: Vec<String>) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .unwrap_or_else(|| panic!("workflow service was shared before configuration"))
+            .audit_secrets = secrets;
+        self
+    }
+
     pub fn node_host_slot(&self) -> &WorkflowNodeHostSlot {
         &self.inner.node_host
     }
 
-    pub fn nodes(&self, run_id: WorkflowRunId) -> NodeClient<'_> {
+    pub fn nodes(&self, run_id: WorkflowRunId) -> NodeClient {
         NodeClient {
-            service: self,
+            service: self.clone(),
             run_id,
         }
     }
@@ -102,6 +159,28 @@ impl WorkflowService {
 
     pub fn prompt_review_capability(&self) -> Option<Arc<dyn crate::PromptReviewCapability>> {
         self.inner.prompt_review.as_ref().map(Arc::clone)
+    }
+
+    pub(crate) fn artifact_store(&self) -> Option<super::WorkflowArtifactStore> {
+        self.inner.artifact_store.clone()
+    }
+
+    pub(crate) fn approval_service(&self) -> Option<Arc<super::WorkflowApprovalService>> {
+        self.inner.approval_service.as_ref().map(Arc::clone)
+    }
+
+    pub(crate) fn goal_capability(&self) -> Option<Arc<dyn crate::WorkflowGoalCapability>> {
+        self.inner.goal_capability.as_ref().map(Arc::clone)
+    }
+
+    pub fn lark_feature_capability(
+        &self,
+    ) -> Option<Arc<dyn crate::workflows::lark_feature::LarkFeatureCapability>> {
+        self.inner.lark_feature_capability.as_ref().map(Arc::clone)
+    }
+
+    pub(crate) fn audit_secrets(&self) -> Vec<String> {
+        self.inner.audit_secrets.clone()
     }
 
     /// Releases process-owned listeners for every thread retained by a terminal run.

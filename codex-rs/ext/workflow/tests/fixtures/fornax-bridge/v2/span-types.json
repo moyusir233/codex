@@ -1,0 +1,38 @@
+[
+  {
+    "operationId": "00000000-0000-0000-0000-000000000001",
+    "name": "root",
+    "spanType": "root",
+    "parent": { "type": "newTrace" }
+  },
+  {
+    "operationId": "00000000-0000-0000-0000-000000000002",
+    "name": "prompt",
+    "spanType": "prompt",
+    "parent": { "type": "newTrace" }
+  },
+  {
+    "operationId": "00000000-0000-0000-0000-000000000003",
+    "name": "model",
+    "spanType": "model",
+    "parent": { "type": "newTrace" }
+  },
+  {
+    "operationId": "00000000-0000-0000-0000-000000000004",
+    "name": "tool",
+    "spanType": "tool",
+    "parent": { "type": "newTrace" }
+  },
+  {
+    "operationId": "00000000-0000-0000-0000-000000000005",
+    "name": "agent",
+    "spanType": "agent",
+    "parent": { "type": "newTrace" }
+  },
+  {
+    "operationId": "00000000-0000-0000-0000-000000000006",
+    "name": "retriever",
+    "spanType": "retriever",
+    "parent": { "type": "newTrace" }
+  }
+]

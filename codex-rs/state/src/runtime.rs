@@ -91,9 +91,14 @@ pub use recovery::sqlite_error_detail_is_corruption;
 pub use recovery::sqlite_error_detail_is_lock;
 pub use remote_control::RemoteControlEnrollmentRecord;
 pub use threads::ThreadFilterOptions;
+pub use workflows::WorkflowApprovalDecisionAppend;
+pub use workflows::WorkflowApprovalDecisionAppendOutcome;
+pub use workflows::WorkflowApprovalPlan;
+pub use workflows::WorkflowApprovalPlanOutcome;
 pub use workflows::WorkflowEffectPlan;
 pub use workflows::WorkflowEffectPlanOutcome;
 pub use workflows::WorkflowEffectUpdate;
+pub use workflows::WorkflowFornaxDeliveryProofPlan;
 pub use workflows::WorkflowFornaxTracePlan;
 pub use workflows::WorkflowFornaxTracePlanOutcome;
 pub use workflows::WorkflowFornaxTraceUpdate;
@@ -866,7 +871,8 @@ mod tests {
         );
         let integration_tables = sqlx::query_scalar::<_, String>(
             "SELECT name FROM sqlite_master WHERE type = 'table' \
-             AND name IN ('workflow_fornax_traces', 'workflow_lark_interactions') ORDER BY name",
+             AND name IN ('workflow_fornax_delivery_proofs', 'workflow_fornax_traces', \
+                          'workflow_lark_interactions') ORDER BY name",
         )
         .fetch_all(&current_pool)
         .await
@@ -874,6 +880,7 @@ mod tests {
         assert_eq!(
             integration_tables,
             vec![
+                "workflow_fornax_delivery_proofs".to_string(),
                 "workflow_fornax_traces".to_string(),
                 "workflow_lark_interactions".to_string(),
             ]

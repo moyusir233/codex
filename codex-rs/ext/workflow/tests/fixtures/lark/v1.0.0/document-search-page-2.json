@@ -1,0 +1,18 @@
+{
+  "data": {
+    "total": 2,
+    "has_more": false,
+    "page_token": null,
+    "results": [
+      {
+        "entity_type": "DOC",
+        "title_highlighted": "Codex prompt review fixture",
+        "result_meta": {
+          "doc_types": "DOCX",
+          "url": "https://example.lark/docx/doxcn_demo_01",
+          "update_time": 1775000001
+        }
+      }
+    ]
+  }
+}
